@@ -51,18 +51,26 @@ JOB DETAILS:
 CRITICAL — HIDDEN INSTRUCTIONS CHECK:
 Many job posts (especially on OnlineJobs.ph) include hidden tests like "Put 'Orange' in your subject line", "Start your message with the word 'Pineapple'", "Include the code XYZ123", etc. Carefully scan the ENTIRE job description for any such instructions and follow them EXACTLY in the appropriate field (subject line, first line of body, etc.).
 
+WRITING STYLE RULES (VERY IMPORTANT):
+- NEVER use the em dash character. Use a comma, period, or rewrite the sentence.
+- Write like a real person who genuinely wants this job. Sincere, warm, grounded.
+- Use simple, natural language. Short sentences. The way someone would actually type.
+- Do NOT sound polished, corporate, or AI-generated. No buzzwords, no fluff.
+- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment".
+- Sound like a dedicated developer/VA who read the job post carefully.
+- Reference specific things from the job description.
+- Keep it under 150 words. Shorter is better.
+- Sign off with first name only.
+
 INSTRUCTIONS:
-1. Write a subject line (short, professional, includes the job title — and any hidden test word/code if required by the description)
+1. Write a simple subject line (like "Applying for [Job Title]" or "Re: [Job Title] role", include any hidden test word if required)
 2. Write the email body that:
-   - Opens with a natural, non-generic hook that references something specific about the job or company
-   - Highlights 2-3 of the applicant's most relevant skills/experiences that match this specific job
-   - Mentions concrete achievements (products shipped, revenue scaled, team managed) but only the ones relevant to this role
-   - Keeps it under 200 words — hiring managers skim
-   - Sounds like a real person, not a template
+   - Opens naturally, references something specific about this job
+   - Highlights 2-3 relevant skills/experiences that match this role
+   - Mentions concrete achievements but only relevant ones
    - Includes portfolio/LinkedIn links naturally
-   - Ends with a clear call to action
-   - If a hidden test instruction requires something in the body, include it naturally
-3. Do NOT use phrases like "I'm excited to apply" or "I believe I would be a great fit" — be direct and specific instead
+   - Ends with a simple call to action
+   - If a hidden test instruction requires something, include it naturally
 
 Respond in this exact JSON format:
 {"subject": "your subject line", "body": "your email body"}`,

@@ -51,7 +51,7 @@ ${profile.phone || ''}`.trim();
       }
 
       return NextResponse.json({
-        subject: `Application for ${job.title} — ${profile.name}`,
+        subject: `Applying for ${job.title}`,
         cover_letter: coverLetter,
         fields,
         hidden_instructions_found: null,
@@ -91,14 +91,25 @@ Many job posts (especially on OnlineJobs.ph) include hidden tests in the descrip
 - Apply them to the correct field (subject line, first line of message, etc.)
 - If the instruction says to put something in the subject, include a "subject" key in your response
 
-Generate responses for each form field. For text areas / cover letter fields, write a compelling, personalized message (under 200 words, sounds human, references specific job requirements).
+WRITING STYLE RULES (VERY IMPORTANT):
+- NEVER use the em dash character (—). Use a comma, period, or just rewrite the sentence instead.
+- Write like a real person who genuinely wants this job. Sincere, warm, and grounded.
+- Use simple, natural language. Short sentences. The way someone would actually type in a chat or email.
+- Do NOT sound polished, corporate, or AI-generated. No buzzwords, no fluff.
+- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment" or any other AI-sounding phrases.
+- Sound like a dedicated VA/developer who read the job post carefully and is writing a genuine message.
+- Reference specific things from the job description to show you actually read it.
+- Keep the message under 150 words. Shorter is better.
+- Use the applicant's first name to sign off, not full name.
 
-Return a JSON object. Include a "cover_letter" key with a standalone cover letter message, a "subject" key if a subject line is needed, and a "fields" object mapping field names/IDs to values.
+Generate responses for each form field. For text areas / cover letter fields, write a sincere, personalized message following the style rules above.
+
+Return a JSON object. Include a "cover_letter" key with the message, a "subject" key for the subject line (keep it simple and human, like "Applying for [Job Title]" or "Re: [Job Title] role"), and a "fields" object mapping field names/IDs to values.
 
 Example format:
 {
-  "subject": "subject line (include any hidden test words here if required)",
-  "cover_letter": "the cover letter text",
+  "subject": "simple subject line (include any hidden test words if required)",
+  "cover_letter": "the message",
   "fields": {
     "field_name_or_id": "value to fill",
     ...

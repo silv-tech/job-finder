@@ -22,7 +22,134 @@
       checkAuthThen(() => applyToJob(message.job, message.application)).then(sendResponse);
       return true;
     }
+    if (message.action === 'clickApplyButton') {
+      handleClickApplyButton().then(sendResponse);
+      return true;
+    }
+    if (message.action === 'fillApplyForm') {
+      handleFillApplyForm(message.job).then(sendResponse);
+      return true;
+    }
   });
+
+  async function handleClickApplyButton() {
+    console.log('[Job Finder] clickApplyButton: looking for apply button...');
+
+    // Find the apply button
+    const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
+    let applyBtn = null;
+    for (const btn of allButtons) {
+      const text = btn.textContent?.trim()?.toLowerCase() || btn.value?.toLowerCase() || '';
+      if (text.includes('apply') && !text.includes('applied')) {
+        applyBtn = btn;
+        break;
+      }
+    }
+
+    if (!applyBtn) {
+      console.log('[Job Finder] No apply button found');
+      return { found: false, navigated: false };
+    }
+
+    console.log('[Job Finder] Found apply button, clicking...');
+    if (applyBtn.href) {
+      window.location.href = applyBtn.href;
+      return { found: true, navigated: true };
+    } else {
+      applyBtn.click();
+      return { found: true, navigated: true };
+    }
+  }
+
+  async function handleFillApplyForm(job) {
+    console.log('[Job Finder] fillApplyForm: detecting fields...');
+    await sleep(1000);
+
+    const formFields = detectFormFields();
+    console.log('[Job Finder] Found', formFields.length, 'form fields');
+
+    if (formFields.length === 0) {
+      return { success: false, error: 'No form fields found' };
+    }
+
+    // Scrape full description from current page
+    const pageDesc = document.body.textContent?.slice(0, 3000) || '';
+    job.description = pageDesc;
+
+    // Generate application
+    const application = await chrome.runtime.sendMessage({
+      action: 'generateApplication',
+      job,
+      formFields,
+    });
+
+    if (application.error) {
+      console.log('[Job Finder] AI error:', application.error);
+      return { success: false, error: application.error };
+    }
+
+    // Fill the form
+    const filled = fillFormFields(formFields, application);
+    console.log('[Job Finder] Filled fields:', filled);
+
+    // Fill Apply Points with 2
+    const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
+    if (pointsInput) {
+      setInputValue(pointsInput, '2');
+      filled.push('apply_points');
+      console.log('[Job Finder] Set apply points to 2');
+    }
+
+    // Save and log
+    await chrome.runtime.sendMessage({ action: 'saveJob', job });
+    await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+    // Find the Send Email button
+    let sendBtn = null;
+    document.querySelectorAll('a, button, input[type="submit"]').forEach((btn) => {
+      const text = btn.textContent?.trim()?.toLowerCase() || btn.value?.toLowerCase() || '';
+      if ((text.includes('send') && text.includes('email')) || text.includes('send email')) {
+        sendBtn = btn;
+      }
+    });
+
+    // Auto-click Send Email
+    if (sendBtn) {
+      console.log('[Job Finder] Clicking Send Email...');
+      await sleep(500);
+      sendBtn.click();
+
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Application Sent!</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+            <p>Filled ${filled.length} fields and submitted automatically.</p>
+            ${application.hidden_instructions_found ? `<p class="jf-status">Hidden instruction followed: ${escapeHtml(application.hidden_instructions_found)}</p>` : ''}
+          </div>
+        </div>
+      `);
+    } else {
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Application Ready</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-success">Form filled with AI-generated application!</p>
+            <p>Filled ${filled.length} fields for <strong>${escapeHtml(job.title)}</strong></p>
+            <p class="jf-status">Could not find Send Email button. Please submit manually.</p>
+          </div>
+        </div>
+      `);
+    }
+
+    return { success: true, filled: filled.length };
+  }
 
   async function checkAuthThen(fn) {
     const { authenticated } = await chrome.runtime.sendMessage({ action: 'checkAuth' });
@@ -615,13 +742,13 @@
     showApplyingOverlay(job);
 
     try {
-      if (!window.location.href.includes(job.apply_url) && !window.location.href.includes(`/job/${job.id}`)) {
-        await chrome.runtime.sendMessage({ action: 'setPendingApply', job });
-        window.location.href = job.apply_url;
-        return;
-      }
+      // Let the background script orchestrate the full flow
+      const result = await chrome.runtime.sendMessage({ action: 'navigateAndApply', job });
+      console.log('[Job Finder] navigateAndApply result:', result);
 
-      await applyOnCurrentPage(job);
+      if (result?.error) {
+        updateApplyStatus(`Error: ${result.error}`);
+      }
     } catch (err) {
       updateApplyStatus(`Error: ${err.message}`);
     }

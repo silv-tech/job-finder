@@ -5,6 +5,7 @@
   "description": "Automatically scrape job listings and apply with AI-generated applications",
   "permissions": [
     "activeTab",
+    "tabs",
     "storage",
     "alarms",
     "notifications"

@@ -125,6 +125,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.remove('pendingApply').then(() => sendResponse({ success: true }));
     return true;
   }
+
+  if (message.action === 'navigateAndApply') {
+    // Background orchestrates: navigate tab, wait for load, tell content script to apply
+    handleNavigateAndApply(message.job, sender.tab.id).then(sendResponse);
+    return true;
+  }
 });
 
 async function handleMatchJobs(jobs) {
@@ -231,6 +237,75 @@ async function updateStats(add) {
   current.applied += add.applied || 0;
 
   await chrome.storage.local.set({ stats: current });
+}
+
+// Orchestrate the full auto-apply flow from background
+async function handleNavigateAndApply(job, tabId) {
+  console.log('[Job Finder BG] Starting auto-apply for:', job.title);
+
+  try {
+    // Step 1: Navigate to the job detail page
+    console.log('[Job Finder BG] Step 1: Navigate to job page:', job.apply_url);
+    await chrome.tabs.update(tabId, { url: job.apply_url });
+    await waitForTabLoad(tabId);
+    await sleep(2000);
+
+    // Step 2: Tell content script to click "APPLY FOR THIS JOB" and get the apply URL
+    console.log('[Job Finder BG] Step 2: Click apply button on job page');
+    let result;
+    try {
+      result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
+    } catch (e) {
+      console.log('[Job Finder BG] Could not send message, retrying...', e.message);
+      await sleep(2000);
+      result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
+    }
+
+    console.log('[Job Finder BG] clickApplyButton result:', result);
+
+    if (result?.navigated) {
+      // The page navigated to /apply — wait for it to load
+      await waitForTabLoad(tabId);
+      await sleep(2000);
+    }
+
+    // Step 3: Tell content script to fill the form
+    console.log('[Job Finder BG] Step 3: Fill application form');
+    try {
+      const fillResult = await chrome.tabs.sendMessage(tabId, { action: 'fillApplyForm', job });
+      console.log('[Job Finder BG] fillApplyForm result:', fillResult);
+      return fillResult;
+    } catch (e) {
+      console.log('[Job Finder BG] Fill error, retrying...', e.message);
+      await sleep(2000);
+      const fillResult = await chrome.tabs.sendMessage(tabId, { action: 'fillApplyForm', job });
+      return fillResult;
+    }
+  } catch (err) {
+    console.error('[Job Finder BG] Auto-apply error:', err);
+    return { error: err.message };
+  }
+}
+
+function waitForTabLoad(tabId) {
+  return new Promise((resolve) => {
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 15000);
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function logApplication(job) {
