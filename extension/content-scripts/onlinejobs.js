@@ -3,8 +3,6 @@
 (function () {
   'use strict';
 
-  console.log('[Job Finder] Content script loaded on:', window.location.href);
-
   let overlay = null;
   let isProcessing = false;
 
@@ -33,8 +31,6 @@
   });
 
   async function handleClickApplyButton() {
-    console.log('[Job Finder] clickApplyButton: scraping description and looking for apply button...');
-
     // Scrape the full job description from the detail page BEFORE navigating away
     let fullDescription = '';
     const descContainers = document.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details');
@@ -48,8 +44,6 @@
       fullDescription = main.textContent?.trim()?.slice(0, 8000) || '';
     }
 
-    console.log('[Job Finder] Scraped description length:', fullDescription.length);
-
     // Find the apply button
     const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
     let applyBtn = null;
@@ -62,11 +56,9 @@
     }
 
     if (!applyBtn) {
-      console.log('[Job Finder] No apply button found');
       return { found: false, navigated: false, description: fullDescription };
     }
 
-    console.log('[Job Finder] Found apply button, clicking...');
     if (applyBtn.href) {
       window.location.href = applyBtn.href;
       return { found: true, navigated: true, description: fullDescription };
@@ -77,12 +69,9 @@
   }
 
   async function handleFillApplyForm(job) {
-    console.log('[Job Finder] fillApplyForm: detecting fields...');
-    console.log('[Job Finder] Job description length:', job.description?.length || 0);
     await sleep(1000);
 
     const formFields = detectFormFields();
-    console.log('[Job Finder] Found', formFields.length, 'form fields');
 
     if (formFields.length === 0) {
       return { success: false, error: 'No form fields found' };
@@ -102,20 +91,17 @@
     });
 
     if (application.error) {
-      console.log('[Job Finder] AI error:', application.error);
       return { success: false, error: application.error };
     }
 
     // Fill the form
     const filled = fillFormFields(formFields, application);
-    console.log('[Job Finder] Filled fields:', filled);
 
     // Fill Apply Points with 2
     const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
     if (pointsInput) {
       setInputValue(pointsInput, '2');
       filled.push('apply_points');
-      console.log('[Job Finder] Set apply points to 2');
     }
 
     // Save job
@@ -212,7 +198,6 @@
     } else {
       // Auto-send without review
       if (sendBtn) {
-        console.log('[Job Finder] Auto-sending...');
         await sleep(500);
         sendBtn.click();
         await chrome.runtime.sendMessage({ action: 'logApply', job });
@@ -266,7 +251,6 @@
     // Fallback: if no cards found with that class, try finding links directly
     if (cards.length === 0) {
       const links = document.querySelectorAll('a[href*="/jobseekers/job/"], a[href*="/job/"]');
-      console.log('[Job Finder] No card containers found, found', links.length, 'job links');
       links.forEach((link) => {
         const href = link.href;
         if (!href) return;
@@ -283,8 +267,6 @@
       });
       return jobs;
     }
-
-    console.log('[Job Finder] Found', cards.length, 'job cards on page');
 
     cards.forEach((card) => {
       const link = card.querySelector('a[href*="/jobseekers/job/"]') || card.querySelector('a[href*="/job/"]');
@@ -387,8 +369,6 @@
       });
 
       const fullUrl = href.startsWith('http') ? href : `https://www.onlinejobs.ph${href}`;
-
-      console.log('[Job Finder] Scraped:', title, '|', company, '|', salary);
 
       jobs.push({
         id,
@@ -504,7 +484,6 @@
       });
     });
 
-    console.log('[Job Finder] Detected fields:', fields.map(f => `${f.label} (${f.type})`).join(', '));
     return fields;
   }
 
@@ -630,6 +609,12 @@
 
   // ========== OVERLAY UI ==========
 
+  function _handleEscapeKey(e) {
+    if (e.key === 'Escape') {
+      removeOverlay();
+    }
+  }
+
   function showOverlay(content) {
     removeOverlay();
 
@@ -639,9 +624,11 @@
     document.body.appendChild(overlay);
 
     overlay.querySelector('#jf-close')?.addEventListener('click', removeOverlay);
+    document.addEventListener('keydown', _handleEscapeKey);
   }
 
   function removeOverlay() {
+    document.removeEventListener('keydown', _handleEscapeKey);
     if (overlay) {
       overlay.remove();
       overlay = null;
@@ -828,7 +815,6 @@
     try {
       // Let the background script orchestrate the full flow
       const result = await chrome.runtime.sendMessage({ action: 'navigateAndApply', job });
-      console.log('[Job Finder] navigateAndApply result:', result);
 
       if (result?.error) {
         updateApplyStatus(`Error: ${result.error}`);
@@ -862,7 +848,6 @@
     if (applyBtn && formFields.length === 0) {
       updateApplyStatus('Saving job data...');
       await chrome.runtime.sendMessage({ action: 'setPendingApply', job });
-      console.log('[Job Finder] Saved pendingApply via background, navigating...');
 
       if (applyBtn.href) {
         window.location.href = applyBtn.href;
@@ -952,7 +937,6 @@
     // Check background script for pending job
     const response = await chrome.runtime.sendMessage({ action: 'getPendingApply' });
     const pendingApply = response?.job;
-    console.log('[Job Finder] checkPendingApply:', pendingApply ? 'FOUND: ' + pendingApply.title : 'no pending job');
 
     if (pendingApply) {
       await chrome.runtime.sendMessage({ action: 'clearPendingApply' });
@@ -965,7 +949,6 @@
     if (window.location.href.includes('/apply')) {
       await sleep(1500);
       const formFields = detectFormFields();
-      console.log('[Job Finder] Apply page detected, fields:', formFields.length);
 
       if (formFields.length > 0) {
         // Try to get the job title from the page
@@ -989,9 +972,8 @@
             const doc = parser.parseFromString(html, 'text/html');
             const fullDesc = doc.body.textContent?.slice(0, 8000) || '';
             if (fullDesc.length > pageDesc.length) pageDesc = fullDesc;
-            console.log('[Job Finder] Fetched full description from job page:', fullDesc.length, 'chars');
           } catch (e) {
-            console.log('[Job Finder] Could not fetch job detail page:', e.message);
+            // Could not fetch job detail page
           }
         }
 

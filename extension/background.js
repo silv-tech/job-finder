@@ -100,7 +100,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'setPendingApply') {
     chrome.storage.local.set({ pendingApply: message.job }).then(() => {
-      console.log('[Job Finder BG] Saved pendingApply:', message.job?.title);
       sendResponse({ success: true });
     });
     return true;
@@ -108,7 +107,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'getPendingApply') {
     chrome.storage.local.get('pendingApply').then(({ pendingApply }) => {
-      console.log('[Job Finder BG] getPendingApply:', pendingApply?.title || 'none');
       sendResponse({ job: pendingApply || null });
     });
     return true;
@@ -152,7 +150,6 @@ async function handleMatchJobs(jobs) {
     await updateStats({ scanned: jobs.length, matched: data.matches?.length || 0 });
     return data;
   } catch (err) {
-    console.error('Match jobs error:', err);
     return { error: err.message, matches: [] };
   }
 }
@@ -184,7 +181,6 @@ async function handleGenerateApplication(job, formFields) {
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     return await res.json();
   } catch (err) {
-    console.error('Generate application error:', err);
     return { error: err.message };
   }
 }
@@ -234,27 +230,20 @@ async function updateStats(add) {
 
 // Orchestrate the full auto-apply flow from background
 async function handleNavigateAndApply(job, tabId) {
-  console.log('[Job Finder BG] Starting auto-apply for:', job.title);
-
   try {
     // Step 1: Navigate to the job detail page
-    console.log('[Job Finder BG] Step 1: Navigate to job page:', job.apply_url);
     await chrome.tabs.update(tabId, { url: job.apply_url });
     await waitForTabLoad(tabId);
     await sleep(2000);
 
     // Step 2: Scrape description and click "APPLY FOR THIS JOB"
-    console.log('[Job Finder BG] Step 2: Scrape description and click apply button');
     let result;
     try {
       result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
     } catch (e) {
-      console.log('[Job Finder BG] Could not send message, retrying...', e.message);
       await sleep(2000);
       result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
     }
-
-    console.log('[Job Finder BG] clickApplyButton result:', result?.found, 'desc length:', result?.description?.length);
 
     // Save the full description from the job detail page
     if (result?.description) {
@@ -267,19 +256,15 @@ async function handleNavigateAndApply(job, tabId) {
     }
 
     // Step 3: Fill the form, passing the job with full description
-    console.log('[Job Finder BG] Step 3: Fill application form');
     try {
       const fillResult = await chrome.tabs.sendMessage(tabId, { action: 'fillApplyForm', job });
-      console.log('[Job Finder BG] fillApplyForm result:', fillResult);
       return fillResult;
     } catch (e) {
-      console.log('[Job Finder BG] Fill error, retrying...', e.message);
       await sleep(2000);
       const fillResult = await chrome.tabs.sendMessage(tabId, { action: 'fillApplyForm', job });
       return fillResult;
     }
   } catch (err) {
-    console.error('[Job Finder BG] Auto-apply error:', err);
     return { error: err.message };
   }
 }

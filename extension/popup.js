@@ -5,6 +5,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const loginView = document.getElementById('login-view');
   const mainView = document.getElementById('main-view');
 
+  // Auto-show login if loading takes too long
+  const loadingTimeout = setTimeout(() => {
+    loadingView.classList.add('hidden');
+    showLoginView();
+  }, 10000);
+
   // Check if already logged in
   const { authToken, userEmail } = await chrome.storage.local.get(['authToken', 'userEmail']);
 
@@ -18,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         headers: { 'Authorization': `Bearer ${authToken}` },
       });
       if (res.ok) {
+        clearTimeout(loadingTimeout);
         loadingView.classList.add('hidden');
         showMainView(userEmail || 'User', config);
         return;
@@ -28,6 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.remove(['authToken', 'userEmail', 'authRefreshToken']);
   }
 
+  clearTimeout(loadingTimeout);
   loadingView.classList.add('hidden');
   showLoginView();
 
@@ -211,7 +219,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
-        scanInterval: parseInt(document.getElementById('scan-interval').value) || 60,
+        scanInterval: Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval').value) || 60)),
       };
 
       await chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });

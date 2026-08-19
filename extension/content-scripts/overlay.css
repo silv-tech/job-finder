@@ -1,5 +1,10 @@
 /* Job Finder Extension Overlay Styles */
 
+@keyframes jf-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
 #jf-overlay {
   position: fixed;
   top: 0;
@@ -12,6 +17,7 @@
   font-size: 14px;
   line-height: 1.5;
   color: #1f2937;
+  animation: jf-slide-in 0.2s ease-out;
 }
 
 .jf-panel {
