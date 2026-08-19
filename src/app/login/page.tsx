@@ -67,7 +67,7 @@ export default function LoginPage() {
           </p>
           <button
             onClick={() => { setSignupSuccess(false); setMode('login'); }}
-            className="text-indigo-600 font-semibold hover:underline"
+            className="text-slate-900 font-semibold hover:underline"
           >
             Back to login
           </button>
@@ -77,19 +77,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-4 shadow-lg" />
-          <h1 className="text-2xl font-bold text-gray-900">
+          <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-slate-900">
             Job Finder
           </h1>
-          <p className="text-gray-500 mt-1">AI-powered job search & auto-apply</p>
+          <p className="text-slate-400 mt-1">AI-powered job search & auto-apply</p>
         </div>
 
         {/* Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-white rounded-2xl border border-slate-200 p-8">
           <h2 className="text-lg font-bold text-gray-900 mb-6">
             {mode === 'login' ? 'Welcome back' : 'Create your account'}
           </h2>
@@ -105,7 +105,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
                 />
               </div>
             </div>
@@ -121,7 +121,7 @@ export default function LoginPage() {
                   placeholder={mode === 'signup' ? 'At least 6 characters' : 'Your password'}
                   required
                   minLength={6}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
                 />
               </div>
             </div>
@@ -135,7 +135,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || !email || !password}
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm"
+              className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-white py-2.5 rounded-xl text-sm font-semibold transition-all"
             >
               {loading ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -152,14 +152,14 @@ export default function LoginPage() {
             {mode === 'login' ? (
               <p className="text-gray-500">
                 Don&apos;t have an account?{' '}
-                <button onClick={() => { setMode('signup'); setError(''); }} className="text-indigo-600 font-semibold hover:underline">
+                <button onClick={() => { setMode('signup'); setError(''); }} className="text-slate-900 font-semibold hover:underline">
                   Sign up
                 </button>
               </p>
             ) : (
               <p className="text-gray-500">
                 Already have an account?{' '}
-                <button onClick={() => { setMode('login'); setError(''); }} className="text-indigo-600 font-semibold hover:underline">
+                <button onClick={() => { setMode('login'); setError(''); }} className="text-slate-900 font-semibold hover:underline">
                   Sign in
                 </button>
               </p>
@@ -167,13 +167,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Extension CTA */}
-        <div className="mt-6 bg-white/80 backdrop-blur-sm rounded-xl border border-indigo-100 p-4 text-center">
-          <p className="text-sm text-gray-600">
-            <span className="font-semibold text-indigo-600">Chrome Extension available!</span><br />
-            Auto-apply to jobs on OnlineJobs.ph with AI. Log in to get started.
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -161,6 +161,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('api-url').value = config?.apiUrl || 'http://localhost:3000';
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
+    // Auto-save toggles when changed
+    document.getElementById('review-toggle').addEventListener('change', () => saveSettings(config));
+    document.getElementById('auto-apply-toggle').addEventListener('change', () => saveSettings(config));
+
+    function saveSettings(baseConfig) {
+      const updatedConfig = {
+        ...baseConfig,
+        reviewBeforeSend: document.getElementById('review-toggle').checked,
+        autoApply: document.getElementById('auto-apply-toggle').checked,
+        apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
+        scanInterval: Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval').value) || 60)),
+      };
+      chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
+    }
+
     // Check connection
     checkConnection(config?.apiUrl || 'http://localhost:3000');
 
@@ -251,22 +266,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       const res = await fetch(`${apiUrl}/api/extension/config`, { headers });
 
       if (res.ok) {
-        const data = await res.json();
-        if (data.authenticated) {
-          statusBar.textContent = `Connected & authenticated as ${data.user?.email || 'user'}`;
-          statusBar.className = 'status-bar status-authed';
-        } else {
-          statusBar.textContent = 'Connected (not authenticated)';
-          statusBar.className = 'status-bar status-connected';
-        }
+        // Connected fine, hide status bar
+        statusBar.className = 'status-bar hidden';
       } else if (res.status === 401) {
-        statusBar.textContent = 'Connected but token expired — sign in again';
+        statusBar.textContent = 'Session expired, sign in again';
         statusBar.className = 'status-bar status-disconnected';
       } else {
         throw new Error('Not OK');
       }
     } catch {
-      statusBar.textContent = 'Not connected — start the app first';
+      statusBar.textContent = 'Not connected, start the app first';
       statusBar.className = 'status-bar status-disconnected';
     }
   }

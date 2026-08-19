@@ -200,14 +200,14 @@ export default function Home() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 sticky top-0 z-40 shadow-lg">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              <img src="/logo.png" alt="Job Finder" className="w-8 h-8 rounded-lg" />
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-lg font-bold text-slate-900 flex items-center gap-2.5">
+              <img src="/logo.png" alt="Job Finder" className="w-8 h-8 rounded-xl shadow-sm" />
               Job Finder
             </h1>
-            <div className="flex gap-1 bg-white/15 backdrop-blur-sm rounded-lg p-1">
+            <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
               {([
                 { id: 'search' as Tab, label: 'Search', icon: Search },
                 { id: 'saved' as Tab, label: 'Saved', icon: Bookmark },
@@ -217,21 +217,21 @@ export default function Home() {
                 <button
                   key={id}
                   onClick={() => setTab(id)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
                     tab === id
-                      ? 'bg-white text-indigo-700 shadow-sm'
-                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  <Icon size={16} /> {label}
+                  <Icon size={15} /> {label}
                 </button>
               ))}
               <button
                 onClick={signOut}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-all ml-1"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium rounded-lg text-slate-400 hover:text-red-500 transition-all ml-1"
                 title="Sign out"
               >
-                <LogOut size={16} />
+                <LogOut size={15} />
               </button>
             </div>
           </div>
@@ -240,8 +240,8 @@ export default function Home() {
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Search
-                  size={18}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
+                  size={16}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
                 />
                 <input
                   type="text"
@@ -254,10 +254,10 @@ export default function Home() {
                     }
                   }}
                   placeholder="Search jobs or select filters below..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-white/95 backdrop-blur-sm border-0 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:ring-2 focus:ring-white/50 outline-none shadow-sm"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
                 />
               </div>
-              <div className="flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg p-1">
+              <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-1">
                 {([
                   { value: 'today', label: 'Today' },
                   { value: '3days', label: '3 Days' },
@@ -267,29 +267,29 @@ export default function Home() {
                   <button
                     key={opt.value}
                     onClick={() => setDateFilter(opt.value)}
-                    className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
+                    className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
                       dateFilter === opt.value
-                        ? 'bg-white text-indigo-700 shadow-sm'
-                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
                     }`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
-              <label className="inline-flex items-center gap-2 px-3 py-2 bg-white/15 backdrop-blur-sm rounded-lg cursor-pointer hover:bg-white/25 transition-colors">
+              <label className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 rounded-xl cursor-pointer hover:bg-slate-200 transition-colors">
                 <input
                   type="checkbox"
                   checked={remoteOnly}
                   onChange={(e) => setRemoteOnly(e.target.checked)}
-                  className="rounded text-indigo-600"
+                  className="rounded text-slate-900 border-slate-300"
                 />
-                <span className="text-sm text-white whitespace-nowrap">Remote</span>
+                <span className="text-sm text-slate-700 whitespace-nowrap">Remote</span>
               </label>
               <button
                 onClick={handleSearch}
                 disabled={loading || (!query.trim() && selectedFilters.size === 0)}
-                className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 disabled:bg-white/50 disabled:text-gray-400 text-indigo-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
               >
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                 Search{selectedFilters.size > 0 ? ` (${selectedFilters.size})` : ''}
@@ -306,7 +306,7 @@ export default function Home() {
             {/* Filter chips — always visible */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-indigo-400 uppercase tracking-wider">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   Select job types (pick multiple)
                 </h2>
                 {selectedFilters.size > 0 && (
@@ -325,10 +325,10 @@ export default function Home() {
                     <button
                       key={q}
                       onClick={() => handleQuickSearch(q)}
-                      className={`text-sm px-4 py-2 rounded-full font-medium transition-all inline-flex items-center gap-1.5 ${
+                      className={`text-sm px-4 py-2 rounded-xl font-medium transition-all inline-flex items-center gap-1.5 ${
                         isSelected
-                          ? 'bg-indigo-600 text-white shadow-md border border-indigo-600'
-                          : 'bg-white border border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 hover:shadow-sm'
+                          ? 'bg-slate-900 text-white shadow-sm border border-slate-900'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
                       }`}
                     >
                       {isSelected && <Check size={14} />}
@@ -338,22 +338,22 @@ export default function Home() {
                 })}
               </div>
               {selectedFilters.size > 0 && (
-                <p className="text-xs text-gray-400 mt-2">
-                  {selectedFilters.size} filter{selectedFilters.size > 1 ? 's' : ''} selected — click Search to find jobs matching all of them
+                <p className="text-xs text-slate-400 mt-2">
+                  {selectedFilters.size} filter{selectedFilters.size > 1 ? 's' : ''} selected, click Search to find jobs matching all of them
                 </p>
               )}
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 text-sm text-red-700">
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-4 text-sm text-red-700">
                 {error}
               </div>
             )}
 
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
-                <div className="bg-white rounded-2xl p-8 shadow-sm text-center">
-                  <Loader2 size={36} className="animate-spin mb-3 text-indigo-500 mx-auto" />
+                <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center">
+                  <Loader2 size={36} className="animate-spin mb-3 text-slate-400 mx-auto" />
                   <p className="text-gray-500 font-medium">
                     Searching {selectedFilters.size > 1 ? `${selectedFilters.size} job types` : 'across job boards'}...
                   </p>
@@ -362,7 +362,7 @@ export default function Home() {
             ) : jobs.length > 0 ? (
               <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <span className="text-sm font-semibold text-gray-700 bg-white px-3 py-1 rounded-full shadow-sm">
+                  <span className="text-sm font-semibold text-slate-700 bg-white px-3 py-1 rounded-full border border-slate-200">
                     {jobs.length} jobs found
                   </span>
                   {jobs.filter((j) => j.contact_email).length > 0 && (
@@ -384,16 +384,16 @@ export default function Home() {
                 </div>
               </div>
             ) : searched ? (
-              <div className="bg-white rounded-2xl p-12 shadow-sm text-center">
-                <Search size={36} className="mx-auto mb-3 text-gray-300" />
-                <p className="text-gray-500 font-medium">No jobs found. Try different keywords or disable remote-only filter.</p>
+              <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center">
+                <Search size={36} className="mx-auto mb-3 text-slate-300" />
+                <p className="text-slate-500 font-medium">No jobs found. Try different keywords or disable remote-only filter.</p>
               </div>
             ) : (
               <div className="text-center py-12">
-                <div className="bg-white rounded-2xl p-12 shadow-sm inline-block">
-                  <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-5 shadow-lg" />
-                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Find your next gig</h2>
-                  <p className="text-gray-500 max-w-md">
+                <div className="bg-white rounded-2xl p-12 border border-slate-200 inline-block">
+                  <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-5" />
+                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Find your next gig</h2>
+                  <p className="text-slate-500 max-w-md">
                     Select multiple job types above, or type your own search. Results from all filters are combined.
                   </p>
                 </div>
