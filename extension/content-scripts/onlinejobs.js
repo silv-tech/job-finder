@@ -36,6 +36,17 @@
       sendResponse({ jobs: scrapeJobListings() });
       return true;
     }
+    if (message.action === 'showLastResults') {
+      chrome.storage.local.get(['lastScanResults']).then(({ lastScanResults }) => {
+        if (lastScanResults && lastScanResults.length > 0) {
+          showMatchResults(lastScanResults);
+          sendResponse({ shown: true, count: lastScanResults.length });
+        } else {
+          sendResponse({ shown: false });
+        }
+      });
+      return true;
+    }
   });
 
   async function handleClickApplyButton() {
@@ -916,8 +927,12 @@
         return { error: result.error };
       }
 
-      showMatchResults(result.matches || []);
-      return { jobs: allJobs.length, matches: result.matches?.length || 0 };
+      // Save results to storage so they survive refresh
+      const matches = result.matches || [];
+      await chrome.storage.local.set({ lastScanResults: matches, lastScanTime: Date.now() });
+
+      showMatchResults(matches);
+      return { jobs: allJobs.length, matches: matches.length };
     } finally {
       isProcessing = false;
     }
@@ -983,8 +998,11 @@
         return { error: result.error };
       }
 
-      showMatchResults(result.matches || []);
-      return { jobs: jobs.length, matches: result.matches?.length || 0 };
+      const matches = result.matches || [];
+      await chrome.storage.local.set({ lastScanResults: matches, lastScanTime: Date.now() });
+
+      showMatchResults(matches);
+      return { jobs: jobs.length, matches: matches.length };
     } finally {
       isProcessing = false;
     }

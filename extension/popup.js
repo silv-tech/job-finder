@@ -179,6 +179,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check connection
     checkConnection(config?.apiUrl || 'http://localhost:3000');
 
+    // Check if there are saved results to show
+    chrome.storage.local.get(['lastScanResults', 'lastScanTime']).then(({ lastScanResults, lastScanTime }) => {
+      if (lastScanResults && lastScanResults.length > 0) {
+        const showBtn = document.getElementById('show-results-btn');
+        const ago = lastScanTime ? Math.round((Date.now() - lastScanTime) / 60000) : 0;
+        const timeText = ago < 1 ? 'just now' : ago < 60 ? `${ago}m ago` : `${Math.round(ago/60)}h ago`;
+        showBtn.textContent = `Show Last Results (${lastScanResults.length} matches, ${timeText})`;
+        showBtn.classList.remove('hidden');
+      }
+    });
+
+    // Show last results button
+    document.getElementById('show-results-btn').addEventListener('click', async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab.url?.includes('onlinejobs.ph')) {
+          await chrome.tabs.sendMessage(tab.id, { action: 'showLastResults' });
+        } else {
+          const resultEl = document.getElementById('scan-result');
+          resultEl.textContent = 'Navigate to onlinejobs.ph to see results.';
+          resultEl.className = 'scan-error';
+        }
+      } catch {}
+    });
+
     // Scan button
     document.getElementById('scan-btn').addEventListener('click', async () => {
       const btn = document.getElementById('scan-btn');
