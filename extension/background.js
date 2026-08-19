@@ -118,7 +118,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'scanMultiplePages') {
-    handleScanMultiplePages(message.baseUrl, message.maxPages, sender.tab.id).then(sendResponse);
+    const tabId = message.tabId || sender.tab?.id;
+    handleScanMultiplePages(message.baseUrl, message.maxPages, tabId).then(sendResponse);
     return true;
   }
 
@@ -293,16 +294,14 @@ async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
       if (pageJobs.length === 0) break;
     }
 
-    // Step 3: Navigate back to page 1
-    await chrome.tabs.update(tabId, { url: baseUrl });
-    await waitForTabLoad(tabId);
-    await sleep(1500);
-
+    // Step 3: Match all collected jobs
     if (allJobs.length === 0) {
+      // Navigate back to page 1
+      await chrome.tabs.update(tabId, { url: baseUrl });
+      await waitForTabLoad(tabId);
       return { error: 'No jobs found', totalJobs: 0, matches: [], pageBreakdown };
     }
 
-    // Step 4: Match all collected jobs
     const { config } = await chrome.storage.local.get('config');
     const apiUrl = config?.apiUrl || 'http://localhost:3000';
     const headers = await getAuthHeaders();
@@ -314,15 +313,33 @@ async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
     });
 
     if (!res.ok) {
+      await chrome.tabs.update(tabId, { url: baseUrl });
+      await waitForTabLoad(tabId);
       return { error: `API error: ${res.status}`, totalJobs: allJobs.length, matches: [], pageBreakdown };
     }
 
     const data = await res.json();
     await updateStats({ scanned: allJobs.length, matched: data.matches?.length || 0 });
 
+    // Step 4: Navigate back to page 1 and show results there
+    await chrome.tabs.update(tabId, { url: baseUrl });
+    await waitForTabLoad(tabId);
+    await sleep(2000);
+
+    // Save results and tell the content script to show them
+    const matches = data.matches || [];
+    await chrome.storage.local.set({ lastScanResults: matches, lastScanTime: Date.now() });
+
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: 'showLastResults' });
+    } catch {
+      await sleep(1500);
+      try { await chrome.tabs.sendMessage(tabId, { action: 'showLastResults' }); } catch {}
+    }
+
     return {
       totalJobs: allJobs.length,
-      matches: data.matches || [],
+      matches,
       pageBreakdown,
     };
   } catch (err) {

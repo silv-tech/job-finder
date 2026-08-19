@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.disabled = false;
     });
 
-    // Scan all pages button
+    // Scan all pages button — talks directly to background script
     document.getElementById('scan-all-btn').addEventListener('click', async () => {
       const btn = document.getElementById('scan-all-btn');
       const resultEl = document.getElementById('scan-result');
@@ -264,13 +264,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
-        const result = await chrome.tabs.sendMessage(tab.id, { action: 'scanAllPages', maxPages: 5 });
+        // Send directly to background script, not content script
+        const result = await chrome.runtime.sendMessage({
+          action: 'scanMultiplePages',
+          maxPages: 5,
+          baseUrl: tab.url,
+          tabId: tab.id,
+        });
 
         if (result?.error) {
           resultEl.textContent = result.error;
           resultEl.className = 'scan-error';
         } else {
-          resultEl.textContent = `Scanned 5 pages: ${result?.jobs || 0} jobs, ${result?.matches || 0} matches`;
+          const breakdown = (result?.pageBreakdown || []).map(p => `P${p.page}:${p.count}`).join(' ');
+          resultEl.textContent = `${result?.totalJobs || 0} jobs from ${result?.pageBreakdown?.length || 0} pages (${breakdown}), ${result?.matches?.length || 0} matches`;
           resultEl.className = 'scan-success';
 
           const newStats = await chrome.runtime.sendMessage({ action: 'getStats' });
