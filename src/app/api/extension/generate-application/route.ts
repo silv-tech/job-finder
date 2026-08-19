@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyExtensionAuth } from '@/lib/auth-api';
+import { AI_MODEL } from '@/lib/ai-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,7 @@ ${profile.name}
 ${profile.email}
 ${profile.phone || ''}`.trim();
 
-      const fields = {};
+      const fields: Record<string, string> = {};
       for (const field of (form_fields || [])) {
         const label = (field.label || field.name || '').toLowerCase();
         if (label.includes('name')) fields[field.name || field.id] = profile.name;
@@ -59,7 +60,7 @@ ${profile.phone || ''}`.trim();
     }
 
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: AI_MODEL,
       max_tokens: 2048,
       messages: [
         {
@@ -121,8 +122,8 @@ Example format:
       ],
     });
 
-    const content = message.content[0];
-    if (content.type !== 'text') {
+    const content = message.content?.[0];
+    if (!content || content.type !== 'text') {
       return NextResponse.json({ error: 'Unexpected response' }, { status: 500 });
     }
 

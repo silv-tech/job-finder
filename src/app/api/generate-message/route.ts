@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { AI_MODEL } from '@/lib/ai-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     const { job, profile } = await req.json();
 
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: AI_MODEL,
       max_tokens: 1024,
       messages: [
         {
@@ -80,8 +81,8 @@ Respond in this exact JSON format:
       ],
     });
 
-    const content = message.content[0];
-    if (content.type !== 'text') {
+    const content = message.content?.[0];
+    if (!content || content.type !== 'text') {
       return NextResponse.json({ error: 'Unexpected response format' }, { status: 500 });
     }
 

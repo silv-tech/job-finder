@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyExtensionAuth } from '@/lib/auth-api';
+import { AI_MODEL } from '@/lib/ai-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     const jobSummaries = jobs.map((j, i) => `[${i}] "${j.title}" at ${j.company}: ${j.description?.slice(0, 300)}`).join('\n\n');
 
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: AI_MODEL,
       max_tokens: 2048,
       messages: [
         {
@@ -90,8 +91,8 @@ Only include jobs with score >= 30. Sort by score descending. Return as a JSON a
       ],
     });
 
-    const content = message.content[0];
-    if (content.type !== 'text') {
+    const content = message.content?.[0];
+    if (!content || content.type !== 'text') {
       return NextResponse.json({ matches: [] });
     }
 

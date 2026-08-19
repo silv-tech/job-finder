@@ -5,21 +5,14 @@ const DEFAULT_CONFIG = {
   autoApply: false,
   scanInterval: 60,
   profile: {
-    name: 'Leif Soliva',
-    email: 'solivaaldon@gmail.com',
+    name: '',
+    email: '',
     phone: '',
-    portfolio_url: 'https://dlvasolutions.com/portfolio/',
-    linkedin_url: 'https://www.linkedin.com/in/leifsoliva/',
-    headline: 'Full-Stack Developer & AI Systems Builder | 6+ Years Experience',
-    skills: [
-      'JavaScript/TypeScript', 'React & Next.js', 'Python', 'Node.js & Express',
-      'AI/LLM Integration (Claude API, OpenAI)', 'AI Chatbots & RAG Systems',
-      'Supabase & PostgreSQL', 'Tailwind CSS', 'Web Scraping & Automation',
-      'Make, Zapier & n8n', 'REST APIs & WebSockets', 'Stripe & Payment Integration',
-      'Vercel, Railway & Netlify', 'Git & CI/CD', 'Electron & Capacitor (Desktop/Mobile)',
-      'Team Management & Operations',
-    ],
-    bio: 'Full-stack developer and operations leader with 6+ years of experience. Shipped 7+ products, managed 30+ people, and scaled revenue from $40K to $200K/month (5x growth). I build websites, AI systems, and automation workflows that businesses depend on.',
+    portfolio_url: '',
+    linkedin_url: '',
+    headline: '',
+    skills: [],
+    bio: '',
   },
 };
 

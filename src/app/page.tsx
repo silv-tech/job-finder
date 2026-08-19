@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Job } from '@/lib/types';
-import { Job as SavedJobType } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import LoginPage from '@/app/login/page';
 import JobCard from '@/components/JobCard';
@@ -10,7 +9,7 @@ import MessageModal from '@/components/MessageModal';
 import AlertsPanel from '@/components/AlertsPanel';
 import SavedJobs from '@/components/SavedJobs';
 import ProfileSettings from '@/components/ProfileSettings';
-import { Search, Loader2, SlidersHorizontal, Bookmark, Briefcase, Sparkles, User, X, Check, Clock, LogOut } from 'lucide-react';
+import { Search, Loader2, SlidersHorizontal, Bookmark, Briefcase, Sparkles, User, X, Check, LogOut } from 'lucide-react';
 
 type Tab = 'search' | 'saved' | 'alerts' | 'profile';
 
@@ -47,7 +46,7 @@ export default function Home() {
       .then((r) => r.json())
       .then((data) => {
         const saved = data.jobs || [];
-        setSavedIds(new Set(saved.map((j: SavedJobType) => j.source_id || j.id)));
+        setSavedIds(new Set(saved.map((j: Job) => j.source_id || j.id)));
       })
       .catch(() => {});
   }, [savedRefresh]);

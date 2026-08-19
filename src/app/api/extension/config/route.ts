@@ -29,5 +29,16 @@ export async function GET(req: NextRequest) {
         enabled: true,
       },
     ],
+    // Default profile for new users - they should customize in the app
+    default_profile: {
+      name: '',
+      email: auth.email,
+      phone: '',
+      portfolio_url: '',
+      linkedin_url: '',
+      headline: '',
+      skills: [],
+      bio: '',
+    },
   });
 }
