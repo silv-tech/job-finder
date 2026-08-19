@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { Briefcase, Sparkles, Loader2, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Loader2, Mail, Lock, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const { signIn, signUp, loading: authLoading } = useAuth();
@@ -81,11 +81,9 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Briefcase size={28} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center justify-center gap-2">
-            Job Finder <Sparkles size={18} className="text-yellow-500" />
+          <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-4 shadow-lg" />
+          <h1 className="text-2xl font-bold text-gray-900">
+            Job Finder
           </h1>
           <p className="text-gray-500 mt-1">AI-powered job search & auto-apply</p>
         </div>

@@ -9,7 +9,7 @@ import MessageModal from '@/components/MessageModal';
 import AlertsPanel from '@/components/AlertsPanel';
 import SavedJobs from '@/components/SavedJobs';
 import ProfileSettings from '@/components/ProfileSettings';
-import { Search, Loader2, SlidersHorizontal, Bookmark, Briefcase, Sparkles, User, X, Check, LogOut } from 'lucide-react';
+import { Search, Loader2, SlidersHorizontal, Bookmark, User, X, Check, LogOut } from 'lucide-react';
 
 type Tab = 'search' | 'saved' | 'alerts' | 'profile';
 
@@ -204,11 +204,8 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              <div className="bg-white/20 backdrop-blur-sm p-1.5 rounded-lg">
-                <Briefcase size={20} className="text-white" />
-              </div>
+              <img src="/logo.png" alt="Job Finder" className="w-8 h-8 rounded-lg" />
               Job Finder
-              <Sparkles size={14} className="text-yellow-300" />
             </h1>
             <div className="flex gap-1 bg-white/15 backdrop-blur-sm rounded-lg p-1">
               {([
@@ -394,9 +391,7 @@ export default function Home() {
             ) : (
               <div className="text-center py-12">
                 <div className="bg-white rounded-2xl p-12 shadow-sm inline-block">
-                  <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
-                    <Briefcase size={28} className="text-white" />
-                  </div>
+                  <img src="/logo.png" alt="Job Finder" className="w-16 h-16 rounded-2xl mx-auto mb-5 shadow-lg" />
                   <h2 className="text-2xl font-bold text-gray-800 mb-2">Find your next gig</h2>
                   <p className="text-gray-500 max-w-md">
                     Select multiple job types above, or type your own search. Results from all filters are combined.

@@ -14,8 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Job Finder — Tech & VA Jobs",
-  description: "Find coding and virtual assistant jobs with direct client contact",
+  title: "Job Finder",
+  description: "AI-powered job search and auto-apply",
+  icons: {
+    icon: "/favicon.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({
