@@ -148,6 +148,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Populate settings
+    document.getElementById('review-toggle').checked = config?.reviewBeforeSend !== false;
     document.getElementById('auto-apply-toggle').checked = config?.autoApply || false;
     document.getElementById('api-url').value = config?.apiUrl || 'http://localhost:3000';
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
@@ -207,6 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const btn = document.getElementById('save-settings-btn');
       const updatedConfig = {
         ...config,
+        reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval: parseInt(document.getElementById('scan-interval').value) || 60,

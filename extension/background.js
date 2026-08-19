@@ -250,8 +250,8 @@ async function handleNavigateAndApply(job, tabId) {
     await waitForTabLoad(tabId);
     await sleep(2000);
 
-    // Step 2: Tell content script to click "APPLY FOR THIS JOB" and get the apply URL
-    console.log('[Job Finder BG] Step 2: Click apply button on job page');
+    // Step 2: Scrape description and click "APPLY FOR THIS JOB"
+    console.log('[Job Finder BG] Step 2: Scrape description and click apply button');
     let result;
     try {
       result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
@@ -261,15 +261,19 @@ async function handleNavigateAndApply(job, tabId) {
       result = await chrome.tabs.sendMessage(tabId, { action: 'clickApplyButton' });
     }
 
-    console.log('[Job Finder BG] clickApplyButton result:', result);
+    console.log('[Job Finder BG] clickApplyButton result:', result?.found, 'desc length:', result?.description?.length);
+
+    // Save the full description from the job detail page
+    if (result?.description) {
+      job.description = result.description;
+    }
 
     if (result?.navigated) {
-      // The page navigated to /apply — wait for it to load
       await waitForTabLoad(tabId);
       await sleep(2000);
     }
 
-    // Step 3: Tell content script to fill the form
+    // Step 3: Fill the form, passing the job with full description
     console.log('[Job Finder BG] Step 3: Fill application form');
     try {
       const fillResult = await chrome.tabs.sendMessage(tabId, { action: 'fillApplyForm', job });

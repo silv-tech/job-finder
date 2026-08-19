@@ -79,30 +79,31 @@ APPLICANT PROFILE:
 JOB:
 - Title: ${job.title}
 - Company: ${job.company}
-- Description: ${job.description?.slice(0, 2000) || 'No description'}
+- Description: ${job.description?.slice(0, 6000) || 'No description'}
 
 FORM FIELDS TO FILL (these are the actual form fields on the application page):
 ${JSON.stringify(form_fields || [], null, 2)}
 
-CRITICAL — HIDDEN INSTRUCTIONS CHECK:
-Many job posts (especially on OnlineJobs.ph) include hidden tests in the description like "Put 'Orange' in your subject line", "Start your message with the word 'Pineapple'", "Include the code XYZ123 in your application", etc. These are used to filter out applicants who didn't read the full description.
-- Carefully scan the ENTIRE job description for ANY such instructions
-- If found, follow them EXACTLY (use the exact word/phrase/code they specify)
-- Apply them to the correct field (subject line, first line of message, etc.)
-- If the instruction says to put something in the subject, include a "subject" key in your response
+CRITICAL — READ THE FULL JOB DESCRIPTION CAREFULLY:
 
-WRITING STYLE RULES (VERY IMPORTANT):
-- NEVER use the em dash character (—). Use a comma, period, or just rewrite the sentence instead.
-- Write like a real person who genuinely wants this job. Sincere, warm, and grounded.
-- Use simple, natural language. Short sentences. The way someone would actually type in a chat or email.
-- Do NOT sound polished, corporate, or AI-generated. No buzzwords, no fluff.
-- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment" or any other AI-sounding phrases.
-- Sound like a dedicated VA/developer who read the job post carefully and is writing a genuine message.
-- Reference specific things from the job description to show you actually read it.
-- Keep the message under 150 words. Shorter is better.
+1. HIDDEN INSTRUCTIONS CHECK:
+Many job posts include hidden tests like "Put 'Orange' in your subject line", "Start your message with the word 'Pineapple'", "Include the code XYZ123", etc. Scan the ENTIRE description for these and follow them EXACTLY.
+
+2. APPLICATION REQUIREMENTS CHECK (VERY IMPORTANT):
+Many job posts end with specific questions or requirements like "When applying, please explain...", "In your application, include...", "Please briefly describe...", "Tell us about...", etc. You MUST find and answer ALL of these. If the job post asks 5 questions, answer all 5. If it says "briefly explain your experience with X", do that. Missing these makes the application look like spam. Address each requirement directly using the applicant's actual experience from their profile.
+
+3. WRITING STYLE RULES:
+- NEVER use the em dash character. Use a comma, period, or rewrite the sentence.
+- Write like a real person who genuinely wants this job. Sincere, warm, grounded.
+- Use simple, natural language. Short sentences.
+- Do NOT sound polished, corporate, or AI-generated. No buzzwords.
+- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment".
+- Sound like a dedicated developer/VA who carefully read the entire job post.
+- Reference specific things from the job description.
 - Use the applicant's first name to sign off, not full name.
+- If the job asks specific questions, the message can be longer to answer them all. Otherwise keep it under 150 words.
 
-Generate responses for each form field. For text areas / cover letter fields, write a sincere, personalized message following the style rules above.
+Generate responses for each form field. For text areas / cover letter fields, write a sincere, personalized message that addresses ALL application requirements found in the job description.
 
 Return a JSON object. Include a "cover_letter" key with the message, a "subject" key for the subject line (keep it simple and human, like "Applying for [Job Title]" or "Re: [Job Title] role"), and a "fields" object mapping field names/IDs to values.
 

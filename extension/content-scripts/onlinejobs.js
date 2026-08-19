@@ -33,7 +33,22 @@
   });
 
   async function handleClickApplyButton() {
-    console.log('[Job Finder] clickApplyButton: looking for apply button...');
+    console.log('[Job Finder] clickApplyButton: scraping description and looking for apply button...');
+
+    // Scrape the full job description from the detail page BEFORE navigating away
+    let fullDescription = '';
+    const descContainers = document.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details');
+    descContainers.forEach((el) => {
+      const text = el.textContent?.trim() || '';
+      if (text.length > fullDescription.length) fullDescription = text;
+    });
+    // Fallback: grab the main content area
+    if (!fullDescription || fullDescription.length < 100) {
+      const main = document.querySelector('main, .container, #content, article') || document.body;
+      fullDescription = main.textContent?.trim()?.slice(0, 8000) || '';
+    }
+
+    console.log('[Job Finder] Scraped description length:', fullDescription.length);
 
     // Find the apply button
     const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
@@ -48,21 +63,22 @@
 
     if (!applyBtn) {
       console.log('[Job Finder] No apply button found');
-      return { found: false, navigated: false };
+      return { found: false, navigated: false, description: fullDescription };
     }
 
     console.log('[Job Finder] Found apply button, clicking...');
     if (applyBtn.href) {
       window.location.href = applyBtn.href;
-      return { found: true, navigated: true };
+      return { found: true, navigated: true, description: fullDescription };
     } else {
       applyBtn.click();
-      return { found: true, navigated: true };
+      return { found: true, navigated: true, description: fullDescription };
     }
   }
 
   async function handleFillApplyForm(job) {
     console.log('[Job Finder] fillApplyForm: detecting fields...');
+    console.log('[Job Finder] Job description length:', job.description?.length || 0);
     await sleep(1000);
 
     const formFields = detectFormFields();
@@ -72,9 +88,11 @@
       return { success: false, error: 'No form fields found' };
     }
 
-    // Scrape full description from current page
-    const pageDesc = document.body.textContent?.slice(0, 3000) || '';
-    job.description = pageDesc;
+    // Only scrape from current page if no description was passed in
+    if (!job.description || job.description.length < 100) {
+      const pageDesc = document.body.textContent?.slice(0, 6000) || '';
+      job.description = pageDesc;
+    }
 
     // Generate application
     const application = await chrome.runtime.sendMessage({
@@ -100,9 +118,8 @@
       console.log('[Job Finder] Set apply points to 2');
     }
 
-    // Save and log
+    // Save job
     await chrome.runtime.sendMessage({ action: 'saveJob', job });
-    await chrome.runtime.sendMessage({ action: 'logApply', job });
 
     // Find the Send Email button
     let sendBtn = null;
@@ -113,39 +130,106 @@
       }
     });
 
-    // Auto-click Send Email
-    if (sendBtn) {
-      console.log('[Job Finder] Clicking Send Email...');
-      await sleep(500);
-      sendBtn.click();
+    // Check if review mode is enabled
+    const { config } = await chrome.storage.local.get('config');
+    const reviewBeforeSend = config?.reviewBeforeSend !== false; // default true
+
+    if (reviewBeforeSend) {
+      // Show review popup with subject, message preview, and send button
+      const subjectText = application.subject || '';
+      const messageText = application.cover_letter || '';
 
       showOverlay(`
-        <div class="jf-panel jf-panel-small">
+        <div class="jf-panel">
           <div class="jf-panel-header">
-            <h2>Application Sent!</h2>
+            <h2>Review Application</h2>
             <button id="jf-close" class="jf-close-btn">&times;</button>
           </div>
           <div class="jf-panel-body">
-            <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
-            <p>Filled ${filled.length} fields and submitted automatically.</p>
-            ${application.hidden_instructions_found ? `<p class="jf-status">Hidden instruction followed: ${escapeHtml(application.hidden_instructions_found)}</p>` : ''}
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Job</div>
+              <div style="font-weight:600;color:#111827;">${escapeHtml(job.title)}</div>
+              <div style="font-size:12px;color:#6b7280;">${escapeHtml(job.company || '')}</div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Subject</div>
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:13px;">${escapeHtml(subjectText)}</div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Message</div>
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5;max-height:250px;overflow-y:auto;">${escapeHtml(messageText)}</div>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Apply Points</div>
+              <div style="font-size:13px;">2 points</div>
+            </div>
+            ${application.hidden_instructions_found ? `
+            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;">
+              Hidden instruction found: ${escapeHtml(application.hidden_instructions_found)}
+            </div>` : ''}
+          </div>
+          <div class="jf-panel-footer" style="flex-direction:column;gap:8px;">
+            <button id="jf-send" class="jf-btn jf-btn-apply" style="width:100%;justify-content:center;padding:12px 16px;font-size:14px;">Send Application</button>
+            <button id="jf-close" class="jf-btn jf-btn-save" style="width:100%;justify-content:center;">Cancel</button>
           </div>
         </div>
       `);
+
+      overlay.querySelector('#jf-send')?.addEventListener('click', async () => {
+        const sendBtnEl = overlay.querySelector('#jf-send');
+        sendBtnEl.textContent = 'Sending...';
+        sendBtnEl.disabled = true;
+
+        if (sendBtn) {
+          sendBtn.click();
+          await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+          showOverlay(`
+            <div class="jf-panel jf-panel-small">
+              <div class="jf-panel-header">
+                <h2>Application Sent!</h2>
+                <button id="jf-close" class="jf-close-btn">&times;</button>
+              </div>
+              <div class="jf-panel-body">
+                <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+              </div>
+            </div>
+          `);
+        } else {
+          showOverlay(`
+            <div class="jf-panel jf-panel-small">
+              <div class="jf-panel-header">
+                <h2>Send Button Not Found</h2>
+                <button id="jf-close" class="jf-close-btn">&times;</button>
+              </div>
+              <div class="jf-panel-body">
+                <p class="jf-error">Could not find the Send Email button. Please click it manually.</p>
+              </div>
+            </div>
+          `);
+        }
+      });
     } else {
-      showOverlay(`
-        <div class="jf-panel jf-panel-small">
-          <div class="jf-panel-header">
-            <h2>Application Ready</h2>
-            <button id="jf-close" class="jf-close-btn">&times;</button>
+      // Auto-send without review
+      if (sendBtn) {
+        console.log('[Job Finder] Auto-sending...');
+        await sleep(500);
+        sendBtn.click();
+        await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+        showOverlay(`
+          <div class="jf-panel jf-panel-small">
+            <div class="jf-panel-header">
+              <h2>Application Sent!</h2>
+              <button id="jf-close" class="jf-close-btn">&times;</button>
+            </div>
+            <div class="jf-panel-body">
+              <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+              <p>Filled ${filled.length} fields and submitted automatically.</p>
+            </div>
           </div>
-          <div class="jf-panel-body">
-            <p class="jf-success">Form filled with AI-generated application!</p>
-            <p>Filled ${filled.length} fields for <strong>${escapeHtml(job.title)}</strong></p>
-            <p class="jf-status">Could not find Send Email button. Please submit manually.</p>
-          </div>
-        </div>
-      `);
+        `);
+      }
     }
 
     return { success: true, filled: filled.length };
@@ -884,9 +968,32 @@
       console.log('[Job Finder] Apply page detected, fields:', formFields.length);
 
       if (formFields.length > 0) {
-        // Scrape whatever job info is on this page
+        // Try to get the job title from the page
         const pageTitle = document.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim() || 'This Position';
-        const pageDesc = document.body.textContent?.slice(0, 3000) || '';
+
+        // The apply page might have some job info — grab everything we can
+        // Also check the "First contacted for Job:" link which has the job title and URL
+        let jobDetailUrl = '';
+        const jobLink = document.querySelector('a[href*="/jobseekers/job/"]');
+        if (jobLink) jobDetailUrl = jobLink.href;
+
+        // Scrape what we can from this page
+        let pageDesc = document.body.textContent?.slice(0, 6000) || '';
+
+        // If we found a link to the job detail page, fetch its content in background
+        if (jobDetailUrl) {
+          try {
+            const res = await fetch(jobDetailUrl);
+            const html = await res.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const fullDesc = doc.body.textContent?.slice(0, 8000) || '';
+            if (fullDesc.length > pageDesc.length) pageDesc = fullDesc;
+            console.log('[Job Finder] Fetched full description from job page:', fullDesc.length, 'chars');
+          } catch (e) {
+            console.log('[Job Finder] Could not fetch job detail page:', e.message);
+          }
+        }
 
         const job = {
           id: Date.now().toString(),

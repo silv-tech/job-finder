@@ -45,32 +45,34 @@ APPLICANT PROFILE:
 JOB DETAILS:
 - Title: ${job.title}
 - Company: ${job.company}
-- Description: ${job.description?.slice(0, 2000) || 'No description available'}
+- Description: ${job.description?.slice(0, 6000) || 'No description available'}
 - Required Skills: ${job.skills?.join(', ') || 'Not specified'}
 
-CRITICAL — HIDDEN INSTRUCTIONS CHECK:
-Many job posts (especially on OnlineJobs.ph) include hidden tests like "Put 'Orange' in your subject line", "Start your message with the word 'Pineapple'", "Include the code XYZ123", etc. Carefully scan the ENTIRE job description for any such instructions and follow them EXACTLY in the appropriate field (subject line, first line of body, etc.).
+CRITICAL — READ THE FULL JOB DESCRIPTION CAREFULLY:
 
-WRITING STYLE RULES (VERY IMPORTANT):
+1. HIDDEN INSTRUCTIONS: Scan for hidden tests like "Put 'Orange' in your subject line", "Include the code XYZ123", etc. Follow them EXACTLY.
+
+2. APPLICATION REQUIREMENTS (VERY IMPORTANT): Many job posts end with specific questions like "When applying, please explain...", "Tell us about...", "Please briefly describe...". You MUST find and answer ALL of these. If the post asks 5 questions, answer all 5 using the applicant's real experience. Missing these makes the application look like spam.
+
+3. WRITING STYLE:
 - NEVER use the em dash character. Use a comma, period, or rewrite the sentence.
 - Write like a real person who genuinely wants this job. Sincere, warm, grounded.
-- Use simple, natural language. Short sentences. The way someone would actually type.
-- Do NOT sound polished, corporate, or AI-generated. No buzzwords, no fluff.
-- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment".
-- Sound like a dedicated developer/VA who read the job post carefully.
-- Reference specific things from the job description.
-- Keep it under 150 words. Shorter is better.
+- Simple, natural language. Short sentences.
+- No AI-sounding phrases like "I'm excited to", "leverage my skills", "dynamic team", "thriving environment".
+- Sound like someone who carefully read the entire job post.
+- Reference specific things from the description.
 - Sign off with first name only.
+- If the job asks specific questions, the message can be longer. Otherwise keep it under 150 words.
 
 INSTRUCTIONS:
-1. Write a simple subject line (like "Applying for [Job Title]" or "Re: [Job Title] role", include any hidden test word if required)
+1. Write a simple subject line (include any hidden test word if required)
 2. Write the email body that:
    - Opens naturally, references something specific about this job
-   - Highlights 2-3 relevant skills/experiences that match this role
+   - Answers ALL application requirements/questions from the job post
+   - Highlights relevant skills/experiences that match this role
    - Mentions concrete achievements but only relevant ones
    - Includes portfolio/LinkedIn links naturally
    - Ends with a simple call to action
-   - If a hidden test instruction requires something, include it naturally
 
 Respond in this exact JSON format:
 {"subject": "your subject line", "body": "your email body"}`,
