@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { Loader2, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Loader2, Mail, Lock, ArrowRight, Download, Globe } from 'lucide-react';
 
 export default function LoginPage() {
   const { signIn, signUp, loading: authLoading } = useAuth();
@@ -167,6 +167,31 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {/* Extension Download */}
+        <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-6">
+          <div className="flex items-start gap-4">
+            <div className="bg-slate-100 p-2.5 rounded-xl flex-shrink-0">
+              <Globe size={20} className="text-slate-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-slate-900 mb-1">Chrome Extension</h3>
+              <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+                Auto-apply to jobs on OnlineJobs.ph with AI-generated applications. Scans listings, matches your skills, and fills forms automatically.
+              </p>
+              <a
+                href="/job-finder-extension.zip"
+                download
+                className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+              >
+                <Download size={14} />
+                Download Extension
+              </a>
+              <p className="text-xs text-slate-400 mt-2">
+                Unzip, then load in Chrome via chrome://extensions with Developer Mode on.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
