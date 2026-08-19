@@ -220,6 +220,47 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.disabled = false;
     });
 
+    // Scan all pages button
+    document.getElementById('scan-all-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('scan-all-btn');
+      const resultEl = document.getElementById('scan-result');
+
+      btn.textContent = 'Scanning pages...';
+      btn.disabled = true;
+
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+        if (!tab.url?.includes('onlinejobs.ph')) {
+          resultEl.textContent = 'Navigate to onlinejobs.ph first, then scan.';
+          resultEl.className = 'scan-error';
+          btn.textContent = 'Scan All Pages (1-5)';
+          btn.disabled = false;
+          return;
+        }
+
+        const result = await chrome.tabs.sendMessage(tab.id, { action: 'scanAllPages', maxPages: 5 });
+
+        if (result?.error) {
+          resultEl.textContent = result.error;
+          resultEl.className = 'scan-error';
+        } else {
+          resultEl.textContent = `Scanned 5 pages: ${result?.jobs || 0} jobs, ${result?.matches || 0} matches`;
+          resultEl.className = 'scan-success';
+
+          const newStats = await chrome.runtime.sendMessage({ action: 'getStats' });
+          document.getElementById('stat-scanned').textContent = newStats?.scanned || 0;
+          document.getElementById('stat-matched').textContent = newStats?.matched || 0;
+        }
+      } catch (err) {
+        resultEl.textContent = 'Error: ' + err.message;
+        resultEl.className = 'scan-error';
+      }
+
+      btn.textContent = 'Scan All Pages (1-5)';
+      btn.disabled = false;
+    });
+
     // Open app
     document.getElementById('open-app-btn').addEventListener('click', () => {
       const url = document.getElementById('api-url').value || 'http://localhost:3000';

@@ -28,6 +28,14 @@
       handleFillApplyForm(message.job).then(sendResponse);
       return true;
     }
+    if (message.action === 'scanAllPages') {
+      checkAuthThen(() => scanAllPages(message.maxPages || 5)).then(sendResponse);
+      return true;
+    }
+    if (message.action === 'scrapeCurrentPage') {
+      sendResponse({ jobs: scrapeJobListings() });
+      return true;
+    }
   });
 
   async function handleClickApplyButton() {
@@ -741,6 +749,179 @@
   }
 
   // ========== CORE LOGIC ==========
+
+  async function scanAllPages(maxPages) {
+    if (isProcessing) return { error: 'Already processing' };
+    isProcessing = true;
+
+    try {
+      const allJobs = [];
+      const baseUrl = window.location.href.replace(/[&?]page=\d+/, '');
+      const separator = baseUrl.includes('?') ? '&' : '?';
+
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-body">
+            <div class="jf-applying">
+              <div class="jf-spinner"></div>
+              <p>Scanning page 1 of ${maxPages}...</p>
+              <p class="jf-status" id="jf-multi-status">Scraping job listings...</p>
+            </div>
+          </div>
+        </div>
+      `);
+
+      // Scrape current page first
+      const currentJobs = scrapeJobListings();
+      allJobs.push(...currentJobs);
+
+      // Fetch remaining pages
+      for (let page = 2; page <= maxPages; page++) {
+        const statusEl = document.getElementById('jf-multi-status');
+        const parentP = statusEl?.parentElement?.querySelector('p:not(.jf-status)');
+        if (parentP) parentP.textContent = `Scanning page ${page} of ${maxPages}...`;
+        if (statusEl) statusEl.textContent = `Found ${allJobs.length} jobs so far...`;
+
+        try {
+          const pageUrl = `${baseUrl}${separator}page=${page}`;
+          const res = await fetch(pageUrl);
+          const html = await res.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+
+          // Scrape jobs from the fetched page
+          const cards = doc.querySelectorAll('div.jobpost-cat-box');
+          const seenUrls = new Set(allJobs.map(j => j.apply_url));
+
+          if (cards.length === 0) break; // No more pages
+
+          cards.forEach((card) => {
+            const link = card.querySelector('a[href*="/jobseekers/job/"]') || card.querySelector('a[href*="/job/"]');
+            if (!link) return;
+
+            const href = link.href || link.getAttribute('href');
+            if (!href) return;
+
+            const fullUrl = href.startsWith('http') ? href : `https://www.onlinejobs.ph${href}`;
+            if (seenUrls.has(fullUrl)) return;
+            seenUrls.add(fullUrl);
+
+            const urlPath = href.replace(/https?:\/\/[^/]+/, '').replace(/[?#].*$/, '');
+            const idMatch = urlPath.match(/-(\d+)$/) || urlPath.match(/\/(\d+)$/);
+            const id = idMatch ? idMatch[1] : urlPath.replace(/[^a-z0-9]/gi, '_');
+
+            // Title
+            let title = '';
+            for (const node of link.childNodes) {
+              if (node.nodeType === Node.TEXT_NODE) {
+                const t = node.textContent?.trim();
+                if (t && t.length > 3) { title = t; break; }
+              }
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = node.tagName?.toLowerCase();
+                if (['dl', 'div', 'p', 'ul', 'table'].includes(tag)) continue;
+                const t = node.textContent?.trim();
+                if (t && t.length > 3) { title = t; break; }
+              }
+            }
+            if (!title) {
+              let fullText = link.textContent?.trim() || '';
+              const descEl = link.querySelector('.desc, [class*="desc"]');
+              if (descEl) fullText = fullText.replace(descEl.textContent || '', '');
+              const dlEl = link.querySelector('dl');
+              if (dlEl) fullText = fullText.replace(dlEl.textContent || '', '');
+              title = fullText.split('\n')[0]?.trim() || '';
+            }
+            title = title.replace(/\s*(Full\s*Time|Part\s*Time|Freelance|Contract|Any|Gig)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+            if (!title || title.length < 3) return;
+
+            // Salary
+            let salary = '';
+            const ddEl = card.querySelector('dd');
+            if (ddEl) salary = ddEl.textContent?.trim() || '';
+
+            // Description
+            let description = '';
+            const descEl = card.querySelector('.desc, [class*="desc"]');
+            if (descEl) description = descEl.textContent?.trim() || '';
+
+            // Company
+            let company = '';
+            const cardText = card.textContent || '';
+            const companyMatch = cardText.match(/([A-Za-z][A-Za-z\s&.]+?)\s*[·•]\s*Posted on/);
+            if (companyMatch) company = companyMatch[1].trim();
+
+            allJobs.push({
+              id, title,
+              company: company || 'Unknown Employer',
+              salary, description,
+              apply_url: fullUrl,
+              location: 'Philippines (Remote)',
+              source: 'onlinejobs_ph',
+              job_type: 'full-time',
+              posted_at: '',
+              skills: [],
+            });
+          });
+        } catch {
+          // Page fetch failed, stop here
+          break;
+        }
+
+        await sleep(500); // Don't hammer the server
+      }
+
+      if (allJobs.length === 0) {
+        showOverlay(`
+          <div class="jf-panel jf-panel-small">
+            <div class="jf-panel-header">
+              <h2>No Jobs Found</h2>
+              <button id="jf-close" class="jf-close-btn">&times;</button>
+            </div>
+            <div class="jf-panel-body">
+              <p class="jf-empty">No job listings found across ${maxPages} pages.</p>
+            </div>
+          </div>
+        `);
+        return { jobs: 0, matches: 0 };
+      }
+
+      // Now match all jobs
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-body">
+            <div class="jf-applying">
+              <div class="jf-spinner"></div>
+              <p>Matching ${allJobs.length} jobs from ${maxPages} pages...</p>
+              <p class="jf-status">Scoring against your profile...</p>
+            </div>
+          </div>
+        </div>
+      `);
+
+      const result = await chrome.runtime.sendMessage({ action: 'matchJobs', jobs: allJobs });
+
+      if (result.error) {
+        showOverlay(`
+          <div class="jf-panel jf-panel-small">
+            <div class="jf-panel-header">
+              <h2>Error</h2>
+              <button id="jf-close" class="jf-close-btn">&times;</button>
+            </div>
+            <div class="jf-panel-body">
+              <p class="jf-error">${escapeHtml(result.error)}</p>
+            </div>
+          </div>
+        `);
+        return { error: result.error };
+      }
+
+      showMatchResults(result.matches || []);
+      return { jobs: allJobs.length, matches: result.matches?.length || 0 };
+    } finally {
+      isProcessing = false;
+    }
+  }
 
   async function scanAndMatch() {
     if (isProcessing) return { error: 'Already processing' };
