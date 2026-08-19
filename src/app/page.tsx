@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Job } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import LoginPage from '@/app/login/page';
@@ -40,6 +40,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [selectedFilters, setSelectedFilters] = useState<Set<string>>(new Set());
   const [dateFilter, setDateFilter] = useState('week');
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetch('/api/saved-jobs')
@@ -249,7 +250,12 @@ export default function Home() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (debounceRef.current) clearTimeout(debounceRef.current);
+                      debounceRef.current = setTimeout(() => handleSearch(), 500);
+                    }
+                  }}
                   placeholder="Search jobs or select filters below..."
                   className="w-full pl-10 pr-4 py-2.5 bg-white/95 backdrop-blur-sm border-0 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:ring-2 focus:ring-white/50 outline-none shadow-sm"
                 />

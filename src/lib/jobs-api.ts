@@ -17,13 +17,17 @@ async function searchJSearch(query: string, page: number = 1, remoteOnly: boolea
     ...(remoteOnly ? { remote_jobs_only: 'true' } : {}),
   });
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   const res = await fetch(`${JSEARCH_BASE}/search?${params}`, {
     headers: {
       'X-RapidAPI-Key': apiKey,
       'X-RapidAPI-Host': 'jsearch.p.rapidapi.com',
     },
+    signal: controller.signal,
     next: { revalidate: 3600 },
   });
+  clearTimeout(timeout);
 
   if (!res.ok) {
     console.error('JSearch error:', res.status, await res.text());
@@ -63,9 +67,13 @@ async function searchRemotive(query: string): Promise<Job[]> {
     limit: '50',
   });
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   const res = await fetch(`${REMOTIVE_BASE}/remote-jobs?${params}`, {
+    signal: controller.signal,
     next: { revalidate: 3600 },
   });
+  clearTimeout(timeout);
 
   if (!res.ok) {
     console.error('Remotive error:', res.status);
@@ -138,9 +146,13 @@ async function searchUpwork(query: string): Promise<Job[]> {
       sort: 'recency',
     });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(`${UPWORK_RSS_BASE}?${params}`, {
+      signal: controller.signal,
       next: { revalidate: 3600 },
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       console.error('Upwork RSS error:', res.status);
@@ -192,9 +204,13 @@ async function searchHimalayas(query: string): Promise<Job[]> {
       q: query,
     });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(`https://himalayas.app/jobs/api?${params}`, {
+      signal: controller.signal,
       next: { revalidate: 3600 },
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       console.error('Himalayas error:', res.status);

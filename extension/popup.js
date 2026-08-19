@@ -222,6 +222,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkConnection(updatedConfig.apiUrl);
     });
 
+    // Sync profile — opens the app's profile page
+    document.getElementById('sync-profile-btn').addEventListener('click', () => {
+      const url = document.getElementById('api-url').value || 'http://localhost:3000';
+      chrome.tabs.create({ url: url + '?tab=profile' });
+    });
+
     // Logout
     document.getElementById('logout-btn').addEventListener('click', async () => {
       await chrome.storage.local.remove(['authToken', 'authRefreshToken', 'userEmail']);

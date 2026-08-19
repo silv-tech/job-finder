@@ -15,9 +15,9 @@ export async function sendOutreachEmail(
   to: string,
   subject: string,
   body: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; code?: string }> {
   const client = getResend();
-  if (!client) return { success: false, error: 'Resend API key not configured' };
+  if (!client) return { success: false, error: 'Resend API key not configured', code: 'CONFIG_ERROR' };
 
   try {
     await client.emails.send({
@@ -28,16 +28,20 @@ export async function sendOutreachEmail(
     });
     return { success: true };
   } catch (err) {
-    return { success: false, error: String(err) };
+    const message = String(err);
+    const code = message.includes('fetch') || message.includes('ECONNREFUSED') || message.includes('timeout')
+      ? 'NETWORK_ERROR'
+      : 'SEND_ERROR';
+    return { success: false, error: message, code };
   }
 }
 
 export async function sendAlertEmail(
   to: string,
   jobs: { title: string; company: string; apply_url: string }[]
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; code?: string }> {
   const client = getResend();
-  if (!client) return { success: false, error: 'Resend API key not configured' };
+  if (!client) return { success: false, error: 'Resend API key not configured', code: 'CONFIG_ERROR' };
 
   const jobList = jobs
     .map((j) => `<li><strong>${j.title}</strong> at ${j.company} — <a href="${j.apply_url}">Apply</a></li>`)
@@ -56,6 +60,10 @@ export async function sendAlertEmail(
     });
     return { success: true };
   } catch (err) {
-    return { success: false, error: String(err) };
+    const message = String(err);
+    const code = message.includes('fetch') || message.includes('ECONNREFUSED') || message.includes('timeout')
+      ? 'NETWORK_ERROR'
+      : 'SEND_ERROR';
+    return { success: false, error: message, code };
   }
 }
