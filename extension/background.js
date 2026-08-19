@@ -117,6 +117,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'scanMultiplePages') {
+    handleScanMultiplePages(message.baseUrl, message.maxPages, sender.tab.id).then(sendResponse);
+    return true;
+  }
+
   if (message.action === 'navigateAndApply') {
     // Background orchestrates: navigate tab, wait for load, tell content script to apply
     handleNavigateAndApply(message.job, sender.tab.id).then(sendResponse);
@@ -226,6 +231,103 @@ async function updateStats(add) {
   current.applied += add.applied || 0;
 
   await chrome.storage.local.set({ stats: current });
+}
+
+// Orchestrate multi-page scanning by navigating the tab to each page
+async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
+  try {
+    const allJobs = [];
+    const seenUrls = new Set();
+    const pageBreakdown = [];
+
+    // Step 1: Scrape page 1 (current page) and get pagination links
+    let result;
+    try {
+      result = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+    } catch {
+      await sleep(2000);
+      result = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+    }
+
+    const page1Jobs = (result?.jobs || []).filter(j => {
+      if (seenUrls.has(j.apply_url)) return false;
+      seenUrls.add(j.apply_url);
+      return true;
+    });
+    allJobs.push(...page1Jobs);
+    pageBreakdown.push({ page: 1, count: page1Jobs.length });
+
+    // Get pagination URLs from the page
+    const pageLinks = (result?.pageLinks || [])
+      .filter(p => p.page >= 2 && p.page <= maxPages)
+      .sort((a, b) => a.page - b.page);
+
+    // Step 2: Navigate to each subsequent page
+    for (const link of pageLinks) {
+      await chrome.tabs.update(tabId, { url: link.url });
+      await waitForTabLoad(tabId);
+      await sleep(2500); // Let JS render
+
+      let pageResult;
+      try {
+        pageResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+      } catch {
+        await sleep(2000);
+        try {
+          pageResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+        } catch {
+          pageBreakdown.push({ page: link.page, count: 0 });
+          continue;
+        }
+      }
+
+      const pageJobs = (pageResult?.jobs || []).filter(j => {
+        if (seenUrls.has(j.apply_url)) return false;
+        seenUrls.add(j.apply_url);
+        return true;
+      });
+
+      allJobs.push(...pageJobs);
+      pageBreakdown.push({ page: link.page, count: pageJobs.length });
+
+      if (pageJobs.length === 0) break;
+    }
+
+    // Step 3: Navigate back to page 1
+    await chrome.tabs.update(tabId, { url: baseUrl });
+    await waitForTabLoad(tabId);
+    await sleep(1500);
+
+    if (allJobs.length === 0) {
+      return { error: 'No jobs found', totalJobs: 0, matches: [], pageBreakdown };
+    }
+
+    // Step 4: Match all collected jobs
+    const { config } = await chrome.storage.local.get('config');
+    const apiUrl = config?.apiUrl || 'http://localhost:3000';
+    const headers = await getAuthHeaders();
+
+    const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {} }),
+    });
+
+    if (!res.ok) {
+      return { error: `API error: ${res.status}`, totalJobs: allJobs.length, matches: [], pageBreakdown };
+    }
+
+    const data = await res.json();
+    await updateStats({ scanned: allJobs.length, matched: data.matches?.length || 0 });
+
+    return {
+      totalJobs: allJobs.length,
+      matches: data.matches || [],
+      pageBreakdown,
+    };
+  } catch (err) {
+    return { error: err.message };
+  }
 }
 
 // Orchestrate the full auto-apply flow from background

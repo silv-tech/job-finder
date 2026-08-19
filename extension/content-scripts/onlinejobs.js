@@ -29,7 +29,22 @@
       return true;
     }
     if (message.action === 'scanAllPages') {
-      checkAuthThen(() => scanAllPages(message.maxPages || 5)).then(sendResponse);
+      // This is now handled by background script navigating the tab
+      checkAuthThen(() => scanAllPagesViaNav(message.maxPages || 5)).then(sendResponse);
+      return true;
+    }
+    if (message.action === 'scrapeAndReport') {
+      // Background calls this on each page to scrape jobs + get pagination links
+      const jobs = scrapeJobListings();
+      const pageLinks = [];
+      document.querySelectorAll('.pagination a[data-ci-pagination-page], ul.pagination a').forEach((a) => {
+        const href = a.href;
+        const pageNum = a.getAttribute('data-ci-pagination-page') || a.textContent?.trim();
+        if (href && pageNum && !isNaN(parseInt(pageNum))) {
+          pageLinks.push({ page: parseInt(pageNum), url: href });
+        }
+      });
+      sendResponse({ jobs, url: window.location.href, pageLinks });
       return true;
     }
     if (message.action === 'scrapeCurrentPage') {
@@ -761,7 +776,39 @@
 
   // ========== CORE LOGIC ==========
 
-  async function scanAllPages(maxPages) {
+  async function scanAllPagesViaNav(maxPages) {
+    // Background script navigates the tab to each page, scrapes, then comes back
+    const result = await chrome.runtime.sendMessage({
+      action: 'scanMultiplePages',
+      maxPages,
+      baseUrl: window.location.href,
+    });
+
+    if (result?.error) {
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Error</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-error">${escapeHtml(result.error)}</p>
+          </div>
+        </div>
+      `);
+      return result;
+    }
+
+    if (result?.matches) {
+      await chrome.storage.local.set({ lastScanResults: result.matches, lastScanTime: Date.now() });
+      showMatchResults(result.matches);
+    }
+
+    return { jobs: result?.totalJobs || 0, matches: result?.matches?.length || 0 };
+  }
+
+  // Old scanAllPages removed - replaced by scanAllPagesViaNav + background orchestration
+  async function _unused_scanAllPages(maxPages) {
     if (isProcessing) return { error: 'Already processing' };
     isProcessing = true;
 
