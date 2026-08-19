@@ -767,6 +767,7 @@
 
     try {
       const allJobs = [];
+      const pageBreakdown = [];
       const baseUrl = window.location.href.replace(/[&?]page=\d+/, '');
       const separator = baseUrl.includes('?') ? '&' : '?';
 
@@ -775,8 +776,9 @@
           <div class="jf-panel-body">
             <div class="jf-applying">
               <div class="jf-spinner"></div>
-              <p>Scanning page 1 of ${maxPages}...</p>
+              <p id="jf-page-label">Scanning page 1 of ${maxPages}...</p>
               <p class="jf-status" id="jf-multi-status">Scraping job listings...</p>
+              <div id="jf-page-log" style="margin-top:12px;text-align:left;font-size:11px;color:#94a3b8;"></div>
             </div>
           </div>
         </div>
@@ -785,13 +787,17 @@
       // Scrape current page first
       const currentJobs = scrapeJobListings();
       allJobs.push(...currentJobs);
+      pageBreakdown.push({ page: 1, count: currentJobs.length });
+
+      const logEl = document.getElementById('jf-page-log');
+      if (logEl) logEl.innerHTML = `<div>Page 1: ${currentJobs.length} jobs found</div>`;
 
       // Fetch remaining pages
       for (let page = 2; page <= maxPages; page++) {
+        const labelEl = document.getElementById('jf-page-label');
         const statusEl = document.getElementById('jf-multi-status');
-        const parentP = statusEl?.parentElement?.querySelector('p:not(.jf-status)');
-        if (parentP) parentP.textContent = `Scanning page ${page} of ${maxPages}...`;
-        if (statusEl) statusEl.textContent = `Found ${allJobs.length} jobs so far...`;
+        if (labelEl) labelEl.textContent = `Scanning page ${page} of ${maxPages}...`;
+        if (statusEl) statusEl.textContent = `${allJobs.length} jobs found so far...`;
 
         try {
           const pageUrl = `${baseUrl}${separator}page=${page}`;
@@ -804,7 +810,11 @@
           const cards = doc.querySelectorAll('div.jobpost-cat-box');
           const seenUrls = new Set(allJobs.map(j => j.apply_url));
 
-          if (cards.length === 0) break; // No more pages
+          if (cards.length === 0) {
+            if (logEl) logEl.innerHTML += `<div>Page ${page}: no more listings</div>`;
+            break;
+          }
+          const jobsBefore = allJobs.length;
 
           cards.forEach((card) => {
             const link = card.querySelector('a[href*="/jobseekers/job/"]') || card.querySelector('a[href*="/job/"]');
@@ -874,12 +884,15 @@
               skills: [],
             });
           });
+          const pageCount = allJobs.length - jobsBefore;
+          pageBreakdown.push({ page, count: pageCount });
+          if (logEl) logEl.innerHTML += `<div>Page ${page}: ${pageCount} jobs found</div>`;
         } catch {
-          // Page fetch failed, stop here
+          if (logEl) logEl.innerHTML += `<div>Page ${page}: failed to load</div>`;
           break;
         }
 
-        await sleep(500); // Don't hammer the server
+        await sleep(500);
       }
 
       if (allJobs.length === 0) {
@@ -898,13 +911,15 @@
       }
 
       // Now match all jobs
+      const breakdownHtml = pageBreakdown.map(p => `<div>Page ${p.page}: ${p.count} jobs</div>`).join('');
       showOverlay(`
         <div class="jf-panel jf-panel-small">
           <div class="jf-panel-body">
             <div class="jf-applying">
               <div class="jf-spinner"></div>
-              <p>Matching ${allJobs.length} jobs from ${maxPages} pages...</p>
+              <p>Matching ${allJobs.length} jobs from ${pageBreakdown.length} pages...</p>
               <p class="jf-status">Scoring against your profile...</p>
+              <div style="margin-top:12px;text-align:left;font-size:11px;color:#94a3b8;">${breakdownHtml}</div>
             </div>
           </div>
         </div>
