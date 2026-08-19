@@ -75,3 +75,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const supabase = getServiceClient();
+    const { id } = await req.json();
+
+    const { error } = await supabase.from('saved_jobs').delete().eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
+  }
+}

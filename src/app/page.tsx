@@ -2,13 +2,15 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Job } from '@/lib/types';
-import { saveJob as saveToStorage, getSavedJobs } from '@/lib/storage';
+import { Job as SavedJobType } from '@/lib/types';
+import { useAuth } from '@/lib/auth-context';
+import LoginPage from '@/app/login/page';
 import JobCard from '@/components/JobCard';
 import MessageModal from '@/components/MessageModal';
 import AlertsPanel from '@/components/AlertsPanel';
 import SavedJobs from '@/components/SavedJobs';
 import ProfileSettings from '@/components/ProfileSettings';
-import { Search, Loader2, SlidersHorizontal, Bookmark, Briefcase, Sparkles, User, X, Check, Clock } from 'lucide-react';
+import { Search, Loader2, SlidersHorizontal, Bookmark, Briefcase, Sparkles, User, X, Check, Clock, LogOut } from 'lucide-react';
 
 type Tab = 'search' | 'saved' | 'alerts' | 'profile';
 
@@ -26,6 +28,7 @@ const QUICK_SEARCHES = [
 ];
 
 export default function Home() {
+  const { user, loading: authLoading, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('search');
   const [query, setQuery] = useState('');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -40,8 +43,13 @@ export default function Home() {
   const [dateFilter, setDateFilter] = useState('week');
 
   useEffect(() => {
-    const saved = getSavedJobs();
-    setSavedIds(new Set(saved.map((j) => j.id)));
+    fetch('/api/saved-jobs')
+      .then((r) => r.json())
+      .then((data) => {
+        const saved = data.jobs || [];
+        setSavedIds(new Set(saved.map((j: SavedJobType) => j.source_id || j.id)));
+      })
+      .catch(() => {});
   }, [savedRefresh]);
 
   function toggleFilter(filter: string) {
@@ -145,10 +153,48 @@ export default function Home() {
     }
   }
 
-  function handleSaveJob(job: Job) {
-    saveToStorage(job);
+  async function handleSaveJob(job: Job) {
     setSavedIds((prev) => new Set([...prev, job.id]));
-    setSavedRefresh((r) => r + 1);
+    try {
+      await fetch('/api/saved-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_id: job.source_id || job.id,
+          source: job.source,
+          title: job.title,
+          company: job.company,
+          company_logo: job.company_logo,
+          location: job.location,
+          salary_min: job.salary_min,
+          salary_max: job.salary_max,
+          description: job.description,
+          skills: job.skills,
+          job_type: job.job_type,
+          remote: job.remote,
+          apply_url: job.apply_url,
+          contact_email: job.contact_email,
+          posted_at: job.posted_at,
+          status: 'interested',
+        }),
+      });
+      setSavedRefresh((r) => r + 1);
+    } catch {
+      // Supabase not configured — job still appears saved in UI
+    }
+  }
+
+  // Auth gate
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-indigo-500" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
   }
 
   return (
@@ -183,6 +229,13 @@ export default function Home() {
                   <Icon size={16} /> {label}
                 </button>
               ))}
+              <button
+                onClick={signOut}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-all ml-1"
+                title="Sign out"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
 

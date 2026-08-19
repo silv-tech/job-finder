@@ -2,7 +2,7 @@
 
 import { Job } from '@/lib/types';
 import { getProfile, generateMessage } from '@/lib/profile';
-import { X, Send, Copy, Check, ExternalLink, Mail } from 'lucide-react';
+import { X, Send, Copy, Check, ExternalLink, Mail, Sparkles, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 interface MessageModalProps {
@@ -17,8 +17,11 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
 
   useEffect(() => {
+    // Start with template immediately, then try AI
     const profile = getProfile();
     const msg = generateMessage(profile, {
       title: job.title,
@@ -28,7 +31,35 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
     });
     setSubject(msg.subject);
     setBody(msg.body);
+
+    // Auto-generate with AI
+    generateWithAI();
   }, [job]);
+
+  async function generateWithAI() {
+    setAiLoading(true);
+    try {
+      const profile = getProfile();
+      const res = await fetch('/api/generate-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job, profile }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.subject && data.body) {
+          setSubject(data.subject);
+          setBody(data.body);
+          setIsAiGenerated(true);
+        }
+      }
+    } catch {
+      // AI not available — keep template version
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function handleCopy() {
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
@@ -80,7 +111,16 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-t-2xl">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Auto-Generated Application</h2>
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              {isAiGenerated ? (
+                <>
+                  <Sparkles size={18} className="text-indigo-500" />
+                  AI-Generated Application
+                </>
+              ) : (
+                'Application Message'
+              )}
+            </h2>
             <p className="text-sm text-indigo-600 font-medium">
               {job.title} at {job.company}
             </p>
@@ -91,9 +131,24 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
               </p>
             )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/80 rounded-lg transition-colors">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {aiLoading && (
+              <span className="text-xs text-indigo-500 flex items-center gap-1">
+                <Loader2 size={14} className="animate-spin" /> Generating with AI...
+              </span>
+            )}
+            <button
+              onClick={generateWithAI}
+              disabled={aiLoading}
+              className="p-2 hover:bg-indigo-100 text-indigo-500 rounded-lg transition-colors disabled:opacity-50"
+              title="Regenerate with AI"
+            >
+              <Sparkles size={18} />
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-white/80 rounded-lg transition-colors">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Form */}
@@ -132,7 +187,6 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
         {/* Actions */}
         <div className="p-5 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
           <div className="flex flex-wrap gap-2">
-            {/* Primary: Copy + Open Apply Page */}
             <button
               onClick={handleCopyAndOpen}
               className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm"
@@ -141,7 +195,6 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
               Copy & Apply
             </button>
 
-            {/* Email directly if contact available */}
             {job.contact_email && (
               <>
                 <button
@@ -162,7 +215,6 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
               </>
             )}
 
-            {/* Copy only */}
             <button
               onClick={handleCopy}
               className="inline-flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"

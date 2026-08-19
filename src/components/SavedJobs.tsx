@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getSavedJobs, updateJobStatus, removeJob } from '@/lib/storage';
-import { Bookmark, ExternalLink, Mail, ChevronDown, Trash2 } from 'lucide-react';
+import { Job, SavedJob } from '@/lib/types';
+import { Bookmark, ExternalLink, Mail, ChevronDown, Trash2, Loader2 } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
+  new: 'bg-gray-100 text-gray-700',
   interested: 'bg-blue-100 text-blue-700',
   applied: 'bg-yellow-100 text-yellow-700',
   messaged: 'bg-green-100 text-green-700',
@@ -13,23 +14,63 @@ const STATUS_COLORS: Record<string, string> = {
   accepted: 'bg-emerald-100 text-emerald-700',
 };
 
-const STATUSES = ['interested', 'applied', 'messaged', 'interviewing', 'rejected', 'accepted'];
+const STATUSES = ['new', 'interested', 'applied', 'messaged', 'interviewing', 'rejected', 'accepted'];
 
 export default function SavedJobs() {
-  const [jobs, setJobs] = useState<ReturnType<typeof getSavedJobs>>([]);
+  const [jobs, setJobs] = useState<SavedJob[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setJobs(getSavedJobs());
+    fetchJobs();
   }, []);
 
-  function handleStatusChange(id: string, status: string) {
-    updateJobStatus(id, status);
-    setJobs(getSavedJobs());
+  async function fetchJobs() {
+    try {
+      const res = await fetch('/api/saved-jobs');
+      const data = await res.json();
+      setJobs(data.jobs || []);
+    } catch {
+      setJobs([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleRemove(id: string) {
-    removeJob(id);
-    setJobs(getSavedJobs());
+  async function handleStatusChange(id: string, status: string) {
+    // Optimistic update
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status: status as SavedJob['status'] } : j)));
+    try {
+      await fetch('/api/saved-jobs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+    } catch {
+      // Revert on failure
+      await fetchJobs();
+    }
+  }
+
+  async function handleRemove(id: string) {
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    try {
+      await fetch('/api/saved-jobs', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      await fetchJobs();
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
+        <Loader2 size={32} className="mx-auto text-gray-300 mb-3 animate-spin" />
+        <p className="text-gray-500">Loading saved jobs...</p>
+      </div>
+    );
   }
 
   if (jobs.length === 0) {

@@ -14,7 +14,7 @@ export interface Job {
   remote: boolean;
   apply_url: string;
   contact_email?: string;
-  source: 'jsearch' | 'remotive' | 'upwork' | 'himalayas';
+  source: 'jsearch' | 'remotive' | 'upwork' | 'himalayas' | 'onlinejobs_ph' | 'extension';
   source_id: string;
   posted_at: string;
   created_at: string;

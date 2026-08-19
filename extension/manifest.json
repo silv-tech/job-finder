@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Job Finder Auto-Apply",
+  "version": "1.0.0",
+  "description": "Automatically scrape job listings and apply with AI-generated applications",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.onlinejobs.ph/*",
+    "https://v2.onlinejobs.ph/*",
+    "https://onlinejobs.ph/*",
+    "http://localhost:3000/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.onlinejobs.ph/*",
+        "https://v2.onlinejobs.ph/*",
+        "https://onlinejobs.ph/*"
+      ],
+      "js": ["content-scripts/onlinejobs.js"],
+      "css": ["content-scripts/overlay.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Job Finder Auto-Apply"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

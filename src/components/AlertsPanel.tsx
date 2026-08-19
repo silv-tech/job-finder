@@ -1,32 +1,68 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getAlerts, addAlert, removeAlert } from '@/lib/storage';
-import { Bell, Plus, Trash2 } from 'lucide-react';
+import { Alert } from '@/lib/types';
+import { Bell, Plus, Trash2, Loader2 } from 'lucide-react';
 
 export default function AlertsPanel() {
-  const [alerts, setAlerts] = useState<ReturnType<typeof getAlerts>>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [keywords, setKeywords] = useState('');
   const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setAlerts(getAlerts());
+    fetchAlerts();
   }, []);
 
-  function handleAdd() {
-    if (!keywords.trim() || !email.trim()) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
-    addAlert(
-      keywords.split(',').map((k) => k.trim()),
-      email
-    );
-    setAlerts(getAlerts());
-    setKeywords('');
+  async function fetchAlerts() {
+    try {
+      const res = await fetch('/api/alerts');
+      const data = await res.json();
+      setAlerts(data.alerts || []);
+    } catch {
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleRemove(id: string) {
-    removeAlert(id);
-    setAlerts(getAlerts());
+  async function handleAdd() {
+    if (!keywords.trim() || !email.trim()) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords: keywords.split(',').map((k) => k.trim()),
+          email,
+        }),
+      });
+      if (res.ok) {
+        await fetchAlerts();
+        setKeywords('');
+      }
+    } catch {
+      // Supabase not configured — silently fail
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    try {
+      await fetch('/api/alerts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
+    } catch {
+      // Supabase not configured
+    }
   }
 
   return (
@@ -36,7 +72,7 @@ export default function AlertsPanel() {
       </h2>
 
       <p className="text-sm text-gray-500 mb-4">
-        Alerts are checked daily when deployed to Vercel. Add Resend + Supabase later to enable email notifications.
+        Get daily email notifications when new jobs match your keywords. Requires Supabase + Resend to be configured.
       </p>
 
       <div className="space-y-3 mb-4">
@@ -56,14 +92,19 @@ export default function AlertsPanel() {
         />
         <button
           onClick={handleAdd}
-          disabled={!keywords.trim() || !email.trim()}
+          disabled={!keywords.trim() || !email.trim() || saving}
           className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         >
-          <Plus size={16} /> Add Alert
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+          {saving ? 'Adding...' : 'Add Alert'}
         </button>
       </div>
 
-      {alerts.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
+          <Loader2 size={16} className="animate-spin" /> Loading alerts...
+        </div>
+      ) : alerts.length === 0 ? (
         <p className="text-sm text-gray-400">
           No alerts yet. Add keywords to get notified about new matching jobs.
         </p>
