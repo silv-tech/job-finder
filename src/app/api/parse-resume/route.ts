@@ -62,12 +62,9 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(arrayBuffer);
 
       if (file.name.endsWith('.pdf')) {
-        const { PDFParse } = await import('pdf-parse');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parser = new PDFParse(buffer) as any;
-        if (parser.shouldParse()) await parser.load();
-        const textResult = await parser.getText();
-        resumeText = typeof textResult === 'string' ? textResult : String(textResult || '');
+        const { extractText } = await import('unpdf');
+        const result = await extractText(buffer);
+        resumeText = Array.isArray(result.text) ? result.text.join('\n') : String(result.text || '');
       } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
         resumeText = buffer.toString('utf-8');
       } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {

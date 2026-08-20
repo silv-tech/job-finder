@@ -14,6 +14,7 @@ export default function ProfileSettings() {
   const [uploadError, setUploadError] = useState('');
   const [importUrl, setImportUrl] = useState('');
   const [importingUrl, setImportingUrl] = useState(false);
+  const [importSuccess, setImportSuccess] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -59,7 +60,8 @@ export default function ProfileSettings() {
       }
 
       if (data.profile) {
-        // Merge parsed data with existing profile (don't overwrite non-empty fields with empty ones)
+        setImportSuccess('Resume parsed! Review the fields below and click Save.');
+        setTimeout(() => setImportSuccess(''), 5000);
         setProfile((prev) => ({
           ...prev,
           name: data.profile.name || prev.name,
@@ -85,6 +87,7 @@ export default function ProfileSettings() {
     if (!importUrl.trim()) return;
     setImportingUrl(true);
     setUploadError('');
+    setImportSuccess('');
 
     try {
       const res = await fetch('/api/parse-resume', {
@@ -113,6 +116,8 @@ export default function ProfileSettings() {
           upwork_url: data.profile.upwork_url || prev.upwork_url,
         }));
         setImportUrl('');
+        setImportSuccess('Profile imported! Review the fields below and click Save.');
+        setTimeout(() => setImportSuccess(''), 5000);
       }
     } catch {
       setUploadError('Failed to import. Check the URL and try again.');
@@ -199,8 +204,11 @@ export default function ProfileSettings() {
           </button>
         </div>
 
+        {importSuccess && (
+          <p className="text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl mt-3">{importSuccess}</p>
+        )}
         {uploadError && (
-          <p className="text-sm text-red-600 mt-2">{uploadError}</p>
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mt-3">{uploadError}</p>
         )}
       </div>
 
