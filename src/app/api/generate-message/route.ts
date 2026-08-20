@@ -40,12 +40,16 @@ APPLICANT PROFILE:
 - Headline: ${profile.headline}
 - Skills: ${profile.skills?.join(', ')}
 - Bio: ${profile.bio}
-- Portfolio: ${profile.portfolio_url || 'N/A'}
-- LinkedIn: ${profile.linkedin_url || 'N/A'}
+- Portfolio URL (EXACT, do not modify): ${profile.portfolio_url || 'N/A'}
+- LinkedIn URL (EXACT, do not modify): ${profile.linkedin_url || 'N/A'}
 ${profile.resume_text ? `
 FULL RESUME/PORTFOLIO (use ONLY facts from this when writing, do not make up experience):
 ${profile.resume_text.slice(0, 5000)}
 ` : ''}
+IMPORTANT URL RULES:
+- When mentioning the portfolio, ALWAYS use the EXACT URL provided above. Never shorten, modify, or guess URLs.
+- ALWAYS include the portfolio link in every message. Mention it naturally as proof of work.
+- The portfolio showcases real shipped products so reference it confidently.
 
 JOB DETAILS:
 - Title: ${job.title}
