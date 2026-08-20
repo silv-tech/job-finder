@@ -259,7 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!tab.url?.includes('onlinejobs.ph')) {
           resultEl.textContent = 'Navigate to onlinejobs.ph first, then scan.';
           resultEl.className = 'scan-error';
-          btn.textContent = 'Scan All Pages (1-5)';
+          btn.textContent = 'Scan All Pages (1-3)';
           btn.disabled = false;
           return;
         }
@@ -267,7 +267,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Send directly to background script, not content script
         const result = await chrome.runtime.sendMessage({
           action: 'scanMultiplePages',
-          maxPages: 5,
+          maxPages: 3,
           baseUrl: tab.url,
           tabId: tab.id,
         });
@@ -289,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         resultEl.className = 'scan-error';
       }
 
-      btn.textContent = 'Scan All Pages (1-5)';
+      btn.textContent = 'Scan All Pages (1-3)';
       btn.disabled = false;
     });
 

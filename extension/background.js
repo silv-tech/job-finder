@@ -234,20 +234,20 @@ async function updateStats(add) {
   await chrome.storage.local.set({ stats: current });
 }
 
-// Orchestrate multi-page scanning by navigating the tab to each page
-async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
+// Orchestrate multi-page scanning using a hidden background tab
+async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
   try {
     const allJobs = [];
     const seenUrls = new Set();
     const pageBreakdown = [];
 
-    // Step 1: Scrape page 1 (current page) and get pagination links
+    // Step 1: Scrape page 1 from the main tab and get pagination links
     let result;
     try {
-      result = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+      result = await chrome.tabs.sendMessage(mainTabId, { action: 'scrapeAndReport' });
     } catch {
       await sleep(2000);
-      result = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+      result = await chrome.tabs.sendMessage(mainTabId, { action: 'scrapeAndReport' });
     }
 
     const page1Jobs = (result?.jobs || []).filter(j => {
@@ -258,49 +258,85 @@ async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
     allJobs.push(...page1Jobs);
     pageBreakdown.push({ page: 1, count: page1Jobs.length });
 
-    // Get pagination URLs from the page
+    // Tell main tab to show progress
+    try {
+      await chrome.tabs.sendMessage(mainTabId, {
+        action: 'showScanProgress',
+        data: { currentPage: 1, maxPages, totalJobs: allJobs.length, pageBreakdown },
+      });
+    } catch {}
+
+    // Get pagination URLs
     const pageLinks = (result?.pageLinks || [])
       .filter(p => p.page >= 2 && p.page <= maxPages)
       .sort((a, b) => a.page - b.page);
 
-    // Step 2: Navigate to each subsequent page
-    for (const link of pageLinks) {
-      await chrome.tabs.update(tabId, { url: link.url });
-      await waitForTabLoad(tabId);
-      await sleep(2500); // Let JS render
+    if (pageLinks.length > 0) {
+      // Step 2: Open a hidden tab for scraping other pages
+      const bgTab = await chrome.tabs.create({ url: pageLinks[0].url, active: false });
 
-      let pageResult;
-      try {
-        pageResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
-      } catch {
-        await sleep(2000);
+      for (const link of pageLinks) {
+        // Navigate the hidden tab
+        await chrome.tabs.update(bgTab.id, { url: link.url });
+        await waitForTabLoad(bgTab.id);
+        await sleep(2500);
+
+        let pageResult;
         try {
-          pageResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+          pageResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'scrapeAndReport' });
         } catch {
-          pageBreakdown.push({ page: link.page, count: 0 });
-          continue;
+          await sleep(2000);
+          try {
+            pageResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'scrapeAndReport' });
+          } catch {
+            pageBreakdown.push({ page: link.page, count: 0 });
+            // Update progress on main tab
+            try {
+              await chrome.tabs.sendMessage(mainTabId, {
+                action: 'showScanProgress',
+                data: { currentPage: link.page, maxPages, totalJobs: allJobs.length, pageBreakdown },
+              });
+            } catch {}
+            continue;
+          }
         }
+
+        const pageJobs = (pageResult?.jobs || []).filter(j => {
+          if (seenUrls.has(j.apply_url)) return false;
+          seenUrls.add(j.apply_url);
+          return true;
+        });
+
+        allJobs.push(...pageJobs);
+        pageBreakdown.push({ page: link.page, count: pageJobs.length });
+
+        // Update progress on main tab
+        try {
+          await chrome.tabs.sendMessage(mainTabId, {
+            action: 'showScanProgress',
+            data: { currentPage: link.page, maxPages, totalJobs: allJobs.length, pageBreakdown },
+          });
+        } catch {}
+
+        if (pageJobs.length === 0) break;
       }
 
-      const pageJobs = (pageResult?.jobs || []).filter(j => {
-        if (seenUrls.has(j.apply_url)) return false;
-        seenUrls.add(j.apply_url);
-        return true;
-      });
-
-      allJobs.push(...pageJobs);
-      pageBreakdown.push({ page: link.page, count: pageJobs.length });
-
-      if (pageJobs.length === 0) break;
+      // Close the hidden tab
+      await chrome.tabs.remove(bgTab.id);
     }
 
     // Step 3: Match all collected jobs
     if (allJobs.length === 0) {
-      // Navigate back to page 1
-      await chrome.tabs.update(tabId, { url: baseUrl });
-      await waitForTabLoad(tabId);
       return { error: 'No jobs found', totalJobs: 0, matches: [], pageBreakdown };
     }
+
+    // Update main tab with matching status
+    try {
+      await chrome.tabs.sendMessage(mainTabId, {
+        action: 'showScanProgress',
+        data: { currentPage: 'matching', maxPages, totalJobs: allJobs.length, pageBreakdown },
+      });
+    } catch {}
 
     const { config } = await chrome.storage.local.get('config');
     const apiUrl = config?.apiUrl || 'http://localhost:3000';
@@ -313,35 +349,24 @@ async function handleScanMultiplePages(baseUrl, maxPages, tabId) {
     });
 
     if (!res.ok) {
-      await chrome.tabs.update(tabId, { url: baseUrl });
-      await waitForTabLoad(tabId);
       return { error: `API error: ${res.status}`, totalJobs: allJobs.length, matches: [], pageBreakdown };
     }
 
     const data = await res.json();
     await updateStats({ scanned: allJobs.length, matched: data.matches?.length || 0 });
 
-    // Step 4: Navigate back to page 1 and show results there
-    await chrome.tabs.update(tabId, { url: baseUrl });
-    await waitForTabLoad(tabId);
-    await sleep(2000);
-
-    // Save results and tell the content script to show them
+    // Step 4: Save results and show on main tab
     const matches = data.matches || [];
     await chrome.storage.local.set({ lastScanResults: matches, lastScanTime: Date.now() });
 
     try {
-      await chrome.tabs.sendMessage(tabId, { action: 'showLastResults' });
+      await chrome.tabs.sendMessage(mainTabId, { action: 'showLastResults' });
     } catch {
       await sleep(1500);
-      try { await chrome.tabs.sendMessage(tabId, { action: 'showLastResults' }); } catch {}
+      try { await chrome.tabs.sendMessage(mainTabId, { action: 'showLastResults' }); } catch {}
     }
 
-    return {
-      totalJobs: allJobs.length,
-      matches,
-      pageBreakdown,
-    };
+    return { totalJobs: allJobs.length, matches, pageBreakdown };
   } catch (err) {
     return { error: err.message };
   }

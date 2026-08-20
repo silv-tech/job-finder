@@ -51,6 +51,27 @@
       sendResponse({ jobs: scrapeJobListings() });
       return true;
     }
+    if (message.action === 'showScanProgress') {
+      const d = message.data;
+      const logHtml = d.pageBreakdown.map(p => `<div>Page ${p.page}: ${p.count} jobs</div>`).join('');
+      const statusText = d.currentPage === 'matching'
+        ? `Matching ${d.totalJobs} jobs against your profile...`
+        : `Scanning page ${d.currentPage} of ${d.maxPages}...`;
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-body">
+            <div class="jf-applying">
+              <div class="jf-spinner"></div>
+              <p><strong>${d.totalJobs} jobs found</strong></p>
+              <p class="jf-status">${statusText}</p>
+              <div style="margin-top:12px;text-align:left;font-size:11px;color:#94a3b8;">${logHtml}</div>
+            </div>
+          </div>
+        </div>
+      `);
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message.action === 'showLastResults') {
       chrome.storage.local.get(['lastScanResults']).then(({ lastScanResults }) => {
         if (lastScanResults && lastScanResults.length > 0) {
