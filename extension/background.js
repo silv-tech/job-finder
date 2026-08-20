@@ -41,7 +41,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.alarms.create('autoScan', { periodInMinutes: DEFAULT_CONFIG.scanInterval });
 });
 
-// Handle periodic scanning
+// Handle periodic auto-apply
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'autoScan') {
     if (!(await isAuthenticated())) return;
@@ -49,12 +49,136 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) return;
 
-    const tabs = await chrome.tabs.query({ url: 'https://www.onlinejobs.ph/*' });
-    if (tabs.length > 0) {
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'autoScan' });
-    }
+    // Find any onlinejobs.ph tab
+    const tabs = await chrome.tabs.query({ url: '*://*.onlinejobs.ph/*' });
+    if (tabs.length === 0) return;
+
+    const tabId = tabs[0].id;
+
+    // Run the full auto-apply cycle
+    await handleAutoApplyCycle(tabId);
   }
 });
+
+// Full auto-apply cycle: scan page, match jobs, apply to recommended ones
+async function handleAutoApplyCycle(tabId) {
+  try {
+    const { config } = await chrome.storage.local.get('config');
+
+    // Step 1: Scrape current page
+    let scrapeResult;
+    try {
+      scrapeResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+    } catch {
+      await sleep(2000);
+      try {
+        scrapeResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
+      } catch { return; }
+    }
+
+    const jobs = scrapeResult?.jobs || [];
+    if (jobs.length === 0) return;
+
+    // Step 2: Match jobs
+    const apiUrl = config?.apiUrl || 'http://localhost:3000';
+    const headers = await getAuthHeaders();
+
+    const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jobs, profile: config?.profile || {} }),
+    });
+
+    if (!matchRes.ok) return;
+    const matchData = await matchRes.json();
+
+    const recommended = (matchData.matches || []).filter(m => m.should_apply);
+    if (recommended.length === 0) return;
+
+    await updateStats({ scanned: jobs.length, matched: matchData.matches?.length || 0 });
+
+    // Step 3: Check for already-applied jobs
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    const appliedSet = new Set(appliedUrls);
+    const toApply = recommended.filter(j => !appliedSet.has(j.apply_url));
+
+    if (toApply.length === 0) return;
+
+    // Step 4: Apply to each recommended job using a hidden tab
+    const bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
+    let appliedCount = 0;
+
+    for (const job of toApply) {
+      try {
+        // Navigate to job detail page
+        await chrome.tabs.update(bgTab.id, { url: job.apply_url });
+        await waitForTabLoad(bgTab.id);
+        await sleep(2500);
+
+        // Click "Apply for this job" and get description
+        let clickResult;
+        try {
+          clickResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'clickApplyButton' });
+        } catch {
+          await sleep(2000);
+          try {
+            clickResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'clickApplyButton' });
+          } catch { continue; }
+        }
+
+        if (clickResult?.description) {
+          job.description = clickResult.description;
+        }
+
+        if (clickResult?.navigated) {
+          await waitForTabLoad(bgTab.id);
+          await sleep(2500);
+        }
+
+        // Fill and submit the form
+        let fillResult;
+        try {
+          fillResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'autoFillAndSend', job });
+        } catch {
+          await sleep(2000);
+          try {
+            fillResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'autoFillAndSend', job });
+          } catch { continue; }
+        }
+
+        if (fillResult?.success) {
+          appliedCount++;
+          // Track applied URLs so we don't re-apply
+          appliedSet.add(job.apply_url);
+          await handleSaveJob(job);
+          await logApplication(job);
+        }
+
+        await sleep(3000); // Pace between applications
+      } catch {
+        continue;
+      }
+    }
+
+    // Save applied URLs
+    await chrome.storage.local.set({ appliedUrls: [...appliedSet] });
+
+    // Close hidden tab
+    await chrome.tabs.remove(bgTab.id);
+
+    // Notify user
+    if (appliedCount > 0) {
+      chrome.notifications.create({
+        type: 'basic',
+        title: 'Auto-Apply Complete',
+        message: `Applied to ${appliedCount} job${appliedCount > 1 ? 's' : ''} automatically`,
+        iconUrl: 'icons/icon128.png',
+      });
+    }
+  } catch {
+    // Silent fail for background cycle
+  }
+}
 
 // Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

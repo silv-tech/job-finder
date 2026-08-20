@@ -51,6 +51,10 @@
       sendResponse({ jobs: scrapeJobListings() });
       return true;
     }
+    if (message.action === 'autoFillAndSend') {
+      handleAutoFillAndSend(message.job).then(sendResponse);
+      return true;
+    }
     if (message.action === 'showScanProgress') {
       const d = message.data;
       const logHtml = d.pageBreakdown.map(p => `<div>Page ${p.page}: ${p.count} jobs</div>`).join('');
@@ -121,6 +125,45 @@
       applyBtn.click();
       return { found: true, navigated: true, description: fullDescription };
     }
+  }
+
+  // Auto fill + send without any UI overlay (used by auto-apply mode)
+  async function handleAutoFillAndSend(job) {
+    await sleep(1000);
+    const formFields = detectFormFields();
+    if (formFields.length === 0) return { success: false, error: 'No form fields' };
+
+    if (!job.description || job.description.length < 100) {
+      job.description = document.body.textContent?.slice(0, 6000) || '';
+    }
+
+    const application = await chrome.runtime.sendMessage({
+      action: 'generateApplication', job, formFields,
+    });
+    if (application.error) return { success: false, error: application.error };
+
+    fillFormFields(formFields, application);
+
+    // Fill apply points
+    const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
+    if (pointsInput) setInputValue(pointsInput, '2');
+
+    await sleep(500);
+
+    // Click send email
+    let sendBtn = null;
+    document.querySelectorAll('a, button, input[type="submit"]').forEach((btn) => {
+      const text = btn.textContent?.trim()?.toLowerCase() || btn.value?.toLowerCase() || '';
+      if ((text.includes('send') && text.includes('email')) || text.includes('send email')) {
+        sendBtn = btn;
+      }
+    });
+
+    if (sendBtn) {
+      sendBtn.click();
+      return { success: true };
+    }
+    return { success: false, error: 'Send button not found' };
   }
 
   async function handleFillApplyForm(job) {
