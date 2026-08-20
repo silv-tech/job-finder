@@ -100,11 +100,11 @@ async function handleAutoApplyCycle(tabId) {
     // Step 3: Check for already-applied jobs
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const appliedSet = new Set(appliedUrls);
-    const toApply = recommended.filter(j => !appliedSet.has(j.apply_url));
+    const toApply = recommended.filter(j => !appliedSet.has(j.apply_url)).slice(0, 5);
 
     if (toApply.length === 0) return;
 
-    // Step 4: Apply to each recommended job using a hidden tab
+    // Step 4: Apply to max 5 recommended jobs using a hidden tab
     const bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
     let appliedCount = 0;
 
