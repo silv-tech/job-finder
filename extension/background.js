@@ -266,14 +266,19 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
       });
     } catch {}
 
-    // Get pagination URLs
+    // Get pagination URLs, deduplicated by page number
+    const seenPages = new Set();
     const pageLinks = (result?.pageLinks || [])
-      .filter(p => p.page >= 2 && p.page <= maxPages)
+      .filter(p => {
+        if (p.page < 2 || p.page > maxPages || seenPages.has(p.page)) return false;
+        seenPages.add(p.page);
+        return true;
+      })
       .sort((a, b) => a.page - b.page);
 
     if (pageLinks.length > 0) {
       // Step 2: Open a hidden tab for scraping other pages
-      const bgTab = await chrome.tabs.create({ url: pageLinks[0].url, active: false });
+      const bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
 
       for (const link of pageLinks) {
         // Navigate the hidden tab
