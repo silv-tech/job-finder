@@ -1,15 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
 import { useAuth } from '@/lib/auth-context';
-import { User, Save, Check, Plus, X } from 'lucide-react';
+import { User, Save, Check, Plus, X, Upload, Loader2, FileText } from 'lucide-react';
 
 export default function ProfileSettings() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile>(getProfile());
   const [saved, setSaved] = useState(false);
   const [newSkill, setNewSkill] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setProfile(getProfile());
@@ -17,7 +20,6 @@ export default function ProfileSettings() {
 
   async function handleSave() {
     saveProfile(profile);
-    // Also save to Supabase so extension can sync
     try {
       await fetch('/api/extension/profile', {
         method: 'POST',
@@ -29,6 +31,52 @@ export default function ProfileSettings() {
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleResumeUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('resume', file);
+
+      const res = await fetch('/api/parse-resume', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUploadError(data.error || 'Failed to parse resume');
+        return;
+      }
+
+      if (data.profile) {
+        // Merge parsed data with existing profile (don't overwrite non-empty fields with empty ones)
+        setProfile((prev) => ({
+          ...prev,
+          name: data.profile.name || prev.name,
+          email: data.profile.email || prev.email,
+          phone: data.profile.phone || prev.phone,
+          headline: data.profile.headline || prev.headline,
+          skills: data.profile.skills?.length > 0 ? data.profile.skills : prev.skills,
+          bio: data.profile.bio || prev.bio,
+          portfolio_url: data.profile.portfolio_url || prev.portfolio_url,
+          linkedin_url: data.profile.linkedin_url || prev.linkedin_url,
+          upwork_url: data.profile.upwork_url || prev.upwork_url,
+        }));
+      }
+    } catch {
+      setUploadError('Failed to upload resume. Try again.');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   }
 
   function update(field: keyof UserProfile, value: string) {
@@ -47,108 +95,164 @@ export default function ProfileSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-5">
-          <div className="bg-indigo-100 p-1.5 rounded-lg">
-            <User size={18} className="text-indigo-600" />
+      {/* Resume Upload */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 mb-2">
+          <div className="bg-slate-100 p-1.5 rounded-xl">
+            <FileText size={18} className="text-slate-600" />
+          </div>
+          Quick Setup
+        </h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Upload your resume and AI will fill in your profile automatically.
+        </p>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.txt,.md,.docx"
+          onChange={handleResumeUpload}
+          className="hidden"
+        />
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all"
+        >
+          {uploading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Parsing resume...
+            </>
+          ) : (
+            <>
+              <Upload size={16} />
+              Upload Resume (PDF, TXT)
+            </>
+          )}
+        </button>
+
+        {uploadError && (
+          <p className="text-sm text-red-600 mt-2">{uploadError}</p>
+        )}
+      </div>
+
+      {/* Profile Fields */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 mb-5">
+          <div className="bg-slate-100 p-1.5 rounded-xl">
+            <User size={18} className="text-slate-600" />
           </div>
           Your Profile
         </h2>
-        <p className="text-sm text-gray-500 mb-5">
+        <p className="text-sm text-slate-500 mb-5">
           This info is used to auto-generate personalized applications for every job.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
             <input
               type="text"
               value={profile.name}
               onChange={(e) => update('name', e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
             <input
               type="email"
               value={profile.email}
               onChange={(e) => update('email', e.target.value)}
               placeholder="your@email.com"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
             <input
               type="tel"
               value={profile.phone}
               onChange={(e) => update('phone', e.target.value)}
               placeholder="+1 (555) 000-0000"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Headline</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Headline</label>
             <input
               type="text"
               value={profile.headline}
               onChange={(e) => update('headline', e.target.value)}
               placeholder="Full-Stack Developer | AI Specialist"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Portfolio URL</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Portfolio URL</label>
             <input
               type="url"
               value={profile.portfolio_url}
               onChange={(e) => update('portfolio_url', e.target.value)}
               placeholder="https://yourportfolio.com"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">LinkedIn URL</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">LinkedIn URL</label>
             <input
               type="url"
               value={profile.linkedin_url}
               onChange={(e) => update('linkedin_url', e.target.value)}
               placeholder="https://linkedin.com/in/yourprofile"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Upwork Profile URL</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Upwork Profile URL</label>
             <input
               type="url"
               value={profile.upwork_url}
               onChange={(e) => update('upwork_url', e.target.value)}
               placeholder="https://www.upwork.com/freelancers/~yourprofile"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Resume URL</label>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Resume URL</label>
             <input
               type="url"
               value={profile.resume_url}
               onChange={(e) => update('resume_url', e.target.value)}
-              placeholder="https://drive.google.com/your-resume or direct link"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              placeholder="https://drive.google.com/your-resume"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
             />
           </div>
         </div>
       </div>
 
+      {/* Bio */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <label className="block text-sm font-medium text-slate-700 mb-1">Bio</label>
+        <p className="text-xs text-slate-400 mb-3">A short summary about yourself. This is used in applications.</p>
+        <textarea
+          value={profile.bio}
+          onChange={(e) => update('bio', e.target.value)}
+          rows={4}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none resize-y"
+        />
+      </div>
+
       {/* Skills */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <label className="block text-sm font-medium text-gray-700 mb-3">Your Skills</label>
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <label className="block text-sm font-medium text-slate-700 mb-3">Your Skills</label>
         <div className="flex flex-wrap gap-2 mb-3">
           {profile.skills.map((skill, i) => (
             <span
               key={i}
-              className="inline-flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-medium"
+              className="inline-flex items-center gap-1 text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-xl font-medium"
             >
               {skill}
               <button onClick={() => removeSkill(i)} className="hover:text-red-500 ml-0.5">
@@ -164,12 +268,12 @@ export default function ProfileSettings() {
             onChange={(e) => setNewSkill(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addSkill()}
             placeholder="Add a skill (e.g. React, Python, AI)"
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+            className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
           />
           <button
             onClick={addSkill}
             disabled={!newSkill.trim()}
-            className="inline-flex items-center gap-1 bg-indigo-100 hover:bg-indigo-200 disabled:bg-gray-100 text-indigo-700 disabled:text-gray-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 disabled:text-slate-300 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
           >
             <Plus size={16} /> Add
           </button>
@@ -177,25 +281,25 @@ export default function ProfileSettings() {
       </div>
 
       {/* Message Template */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Message Template</label>
-        <p className="text-xs text-gray-400 mb-3">
-          Variables: {'{{job_title}}'}, {'{{company}}'}, {'{{matched_skills}}'}, {'{{skills_list}}'}, {'{{portfolio_line}}'}, {'{{linkedin_line}}'}, {'{{upwork_line}}'}, {'{{resume_line}}'}, {'{{name}}'}, {'{{email}}'}, {'{{phone}}'}, {'{{hiring_manager}}'}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <label className="block text-sm font-medium text-slate-700 mb-1">Message Template</label>
+        <p className="text-xs text-slate-400 mb-3">
+          Fallback template when AI is not available. Variables: {'{{job_title}}'}, {'{{company}}'}, {'{{matched_skills}}'}, {'{{name}}'}, {'{{email}}'}, {'{{phone}}'}
         </p>
         <textarea
           value={profile.message_template}
           onChange={(e) => update('message_template', e.target.value)}
-          rows={16}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-y"
+          rows={12}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none resize-y"
         />
       </div>
 
       <button
         onClick={handleSave}
-        className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all shadow-sm ${
+        className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
           saved
             ? 'bg-emerald-500 text-white'
-            : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white'
+            : 'bg-slate-900 hover:bg-slate-800 text-white'
         }`}
       >
         {saved ? <Check size={18} /> : <Save size={18} />}
