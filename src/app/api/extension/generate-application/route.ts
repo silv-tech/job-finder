@@ -80,10 +80,15 @@ ${profile.resume_text ? `
 FULL RESUME/PORTFOLIO (use ONLY facts from this when writing the application, do not make up experience):
 ${profile.resume_text.slice(0, 5000)}
 ` : ''}
-IMPORTANT URL RULES:
-- When mentioning the portfolio, ALWAYS use the EXACT URL provided above. Never shorten, modify, or guess URLs.
-- ALWAYS include the portfolio link in every application message. Mention it naturally, like "You can see my work at ${profile.portfolio_url}" or "Here is my portfolio: ${profile.portfolio_url}"
-- The portfolio showcases real shipped products, so reference it as proof of work.
+IMPORTANT RULES:
+- When mentioning the portfolio, use the EXACT URL provided above (without https://). Never modify or guess URLs.
+- ALWAYS include the portfolio link in every message. Mention it naturally as proof of work.
+
+SUBJECT LINE RULES:
+- Write a bold, confident, catchy subject line. Think: "HIRE ME NOW!", "What are you waiting for?", "Here I am", "This is it!", "This is me", "Ready when you are"
+- Be creative, mix it up, don't use the same subject every time
+- If the job description requires a specific word in the subject (hidden instruction), put that word at the END of your catchy subject. Example: "HIRE ME NOW! ORANGE"
+- Never use boring subjects like "Application for [Job Title]"
 
 JOB:
 - Title: ${job.title}
