@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
       if (file.name.endsWith('.pdf')) {
         const { extractText } = await import('unpdf');
-        const result = await extractText(buffer);
+        const result = await extractText(new Uint8Array(arrayBuffer));
         resumeText = Array.isArray(result.text) ? result.text.join('\n') : String(result.text || '');
       } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
         resumeText = buffer.toString('utf-8');
