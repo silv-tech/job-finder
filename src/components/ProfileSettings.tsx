@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
 import { useAuth } from '@/lib/auth-context';
-import { User, Save, Check, Plus, X, Upload, Loader2, FileText } from 'lucide-react';
+import { User, Save, Check, Plus, X, Upload, Loader2, FileText, Globe } from 'lucide-react';
 
 export default function ProfileSettings() {
   const { user } = useAuth();
@@ -12,6 +12,8 @@ export default function ProfileSettings() {
   const [newSkill, setNewSkill] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [importUrl, setImportUrl] = useState('');
+  const [importingUrl, setImportingUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -79,6 +81,46 @@ export default function ProfileSettings() {
     }
   }
 
+  async function handleUrlImport() {
+    if (!importUrl.trim()) return;
+    setImportingUrl(true);
+    setUploadError('');
+
+    try {
+      const res = await fetch('/api/parse-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadError(data.error || 'Failed to import from URL');
+        return;
+      }
+
+      if (data.profile) {
+        setProfile((prev) => ({
+          ...prev,
+          name: data.profile.name || prev.name,
+          email: data.profile.email || prev.email,
+          phone: data.profile.phone || prev.phone,
+          headline: data.profile.headline || prev.headline,
+          skills: data.profile.skills?.length > 0 ? data.profile.skills : prev.skills,
+          bio: data.profile.bio || prev.bio,
+          portfolio_url: data.profile.portfolio_url || importUrl.trim() || prev.portfolio_url,
+          linkedin_url: data.profile.linkedin_url || prev.linkedin_url,
+          upwork_url: data.profile.upwork_url || prev.upwork_url,
+        }));
+        setImportUrl('');
+      }
+    } catch {
+      setUploadError('Failed to import. Check the URL and try again.');
+    } finally {
+      setImportingUrl(false);
+    }
+  }
+
   function update(field: keyof UserProfile, value: string) {
     setProfile((p) => ({ ...p, [field]: value }));
   }
@@ -132,6 +174,30 @@ export default function ProfileSettings() {
             </>
           )}
         </button>
+
+        <div className="flex items-center gap-3 my-3">
+          <div className="flex-1 h-px bg-slate-200"></div>
+          <span className="text-xs text-slate-400">or</span>
+          <div className="flex-1 h-px bg-slate-200"></div>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+            placeholder="Paste portfolio or LinkedIn URL"
+            className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none"
+          />
+          <button
+            onClick={handleUrlImport}
+            disabled={importingUrl || !importUrl.trim()}
+            className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap"
+          >
+            {importingUrl ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+            Import
+          </button>
+        </div>
 
         {uploadError && (
           <p className="text-sm text-red-600 mt-2">{uploadError}</p>

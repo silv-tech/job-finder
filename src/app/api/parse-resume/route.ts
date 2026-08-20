@@ -19,39 +19,67 @@ export async function POST(req: NextRequest) {
   const client = getClient();
 
   try {
-    const formData = await req.formData();
-    const file = formData.get('resume') as File | null;
-
-    if (!file) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
-    }
-
-    // Extract text from the file
     let resumeText = '';
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
 
-    if (file.name.endsWith('.pdf')) {
-      const { PDFParse } = await import('pdf-parse');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parser = new PDFParse(buffer) as any;
-      if (parser.shouldParse()) await parser.load();
-      const textResult = await parser.getText();
-      resumeText = typeof textResult === 'string' ? textResult : String(textResult || '');
-    } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-      resumeText = buffer.toString('utf-8');
-    } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-      // Basic text extraction from docx (XML-based)
-      const text = buffer.toString('utf-8');
-      // Strip XML tags for basic extraction
-      resumeText = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    // Check if it's a URL import (JSON body) or file upload (FormData)
+    const contentType = req.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      // URL import
+      const body = await req.json();
+      if (!body.url) {
+        return NextResponse.json({ error: 'No URL provided' }, { status: 400 });
+      }
+
+      try {
+        const res = await fetch(body.url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobFinder/1.0)' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+        const html = await res.text();
+        // Strip HTML tags to get text content
+        resumeText = html
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 8000);
+      } catch (err) {
+        return NextResponse.json({ error: 'Could not fetch URL: ' + String(err) }, { status: 400 });
+      }
     } else {
-      // Try to read as text
-      resumeText = buffer.toString('utf-8');
+      // File upload
+      const formData = await req.formData();
+      const file = formData.get('resume') as File | null;
+
+      if (!file) {
+        return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      if (file.name.endsWith('.pdf')) {
+        const { PDFParse } = await import('pdf-parse');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const parser = new PDFParse(buffer) as any;
+        if (parser.shouldParse()) await parser.load();
+        const textResult = await parser.getText();
+        resumeText = typeof textResult === 'string' ? textResult : String(textResult || '');
+      } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        resumeText = buffer.toString('utf-8');
+      } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        const text = buffer.toString('utf-8');
+        resumeText = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      } else {
+        resumeText = buffer.toString('utf-8');
+      }
     }
 
     if (!resumeText || resumeText.length < 20) {
-      return NextResponse.json({ error: 'Could not extract text from file. Try a PDF or TXT file.' }, { status: 400 });
+      return NextResponse.json({ error: 'Could not extract text. Try a PDF, TXT, or a different URL.' }, { status: 400 });
     }
 
     // If no AI, do basic extraction
