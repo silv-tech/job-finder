@@ -10,6 +10,7 @@ export interface UserProfile {
   skills: string[];
   bio: string;
   message_template: string;
+  resume_text?: string;
 }
 
 const DEFAULT_PROFILE: UserProfile = {

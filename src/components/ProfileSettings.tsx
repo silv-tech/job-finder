@@ -73,6 +73,7 @@ export default function ProfileSettings() {
           portfolio_url: data.profile.portfolio_url || prev.portfolio_url,
           linkedin_url: data.profile.linkedin_url || prev.linkedin_url,
           upwork_url: data.profile.upwork_url || prev.upwork_url,
+          resume_text: data.profile.resume_text || prev.resume_text,
         }));
       }
     } catch {
@@ -114,6 +115,7 @@ export default function ProfileSettings() {
           portfolio_url: data.profile.portfolio_url || importUrl.trim() || prev.portfolio_url,
           linkedin_url: data.profile.linkedin_url || prev.linkedin_url,
           upwork_url: data.profile.upwork_url || prev.upwork_url,
+          resume_text: data.profile.resume_text || prev.resume_text,
         }));
         setImportUrl('');
         setImportSuccess('Profile imported! Review the fields below and click Save.');

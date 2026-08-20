@@ -143,6 +143,8 @@ ${resumeText.slice(0, 5000)}`,
     }
 
     const parsed = JSON.parse(text);
+    // Include the full resume text so it can be stored and used for applications
+    parsed.resume_text = resumeText.slice(0, 10000);
     return NextResponse.json({ profile: parsed });
   } catch (err) {
     return NextResponse.json({ error: 'Failed to parse resume: ' + String(err) }, { status: 500 });

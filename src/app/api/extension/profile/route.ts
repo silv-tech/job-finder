@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
         headline: data.headline || '',
         skills: data.skills || [],
         bio: data.bio || '',
+        resume_text: data.resume_text || '',
       },
     });
   } catch {
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
         headline: body.headline || '',
         skills: body.skills || [],
         bio: body.bio || '',
+        resume_text: body.resume_text || '',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 

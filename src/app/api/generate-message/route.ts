@@ -38,10 +38,14 @@ export async function POST(req: NextRequest) {
 APPLICANT PROFILE:
 - Name: ${profile.name}
 - Headline: ${profile.headline}
-- Skills: ${profile.skills.join(', ')}
+- Skills: ${profile.skills?.join(', ')}
 - Bio: ${profile.bio}
 - Portfolio: ${profile.portfolio_url || 'N/A'}
 - LinkedIn: ${profile.linkedin_url || 'N/A'}
+${profile.resume_text ? `
+FULL RESUME/PORTFOLIO (use ONLY facts from this when writing, do not make up experience):
+${profile.resume_text.slice(0, 5000)}
+` : ''}
 
 JOB DETAILS:
 - Title: ${job.title}
