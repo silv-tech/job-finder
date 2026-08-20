@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (authToken) {
     // Verify token is still valid
     const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
-    const apiUrl = config?.apiUrl || 'http://localhost:3000';
+    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
 
     try {
       const res = await fetch(`${apiUrl}/api/auth/session`, {
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('signup-link-btn').addEventListener('click', () => {
       const config = chrome.runtime.sendMessage({ action: 'getConfig' });
       config.then((c) => {
-        chrome.tabs.create({ url: (c?.apiUrl || 'http://localhost:3000') });
+        chrome.tabs.create({ url: (c?.apiUrl || 'https://jobs.dlvasolutions.com') });
       });
     });
   }
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
-      const apiUrl = config?.apiUrl || 'http://localhost:3000';
+      const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
 
       // Sign in via Supabase REST API directly
       const supabaseUrl = await getSupabaseUrl(apiUrl);
@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (config?.autoApply) {
       document.getElementById('auto-apply-config').classList.remove('hidden');
     }
-    document.getElementById('api-url').value = config?.apiUrl || 'http://localhost:3000';
+    document.getElementById('api-url').value = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
     // Auto-save toggles when changed
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Check connection
-    checkConnection(config?.apiUrl || 'http://localhost:3000');
+    checkConnection(config?.apiUrl || 'https://jobs.dlvasolutions.com');
 
     // Check if there are saved results to show
     chrome.storage.local.get(['lastScanResults', 'lastScanTime']).then(({ lastScanResults, lastScanTime }) => {
@@ -347,7 +347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         const { authToken } = await chrome.storage.local.get('authToken');
-        const apiUrl = document.getElementById('api-url').value || 'http://localhost:3000';
+        const apiUrl = document.getElementById('api-url').value || 'https://jobs.dlvasolutions.com';
 
         const res = await fetch(`${apiUrl}/api/extension/profile`, {
           headers: { 'Authorization': `Bearer ${authToken}` },

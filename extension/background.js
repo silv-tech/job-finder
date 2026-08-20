@@ -1,7 +1,7 @@
 // Background service worker for Job Finder Auto-Apply extension
 
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://localhost:3000',
+  apiUrl: 'https://jobs.dlvasolutions.com',
   autoApply: false,
   scanInterval: 60,
   profile: {
