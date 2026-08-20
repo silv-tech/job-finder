@@ -100,7 +100,11 @@ async function handleAutoApplyCycle(tabId) {
     // Step 3: Check for already-applied jobs
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const appliedSet = new Set(appliedUrls);
-    const toApply = recommended.filter(j => !appliedSet.has(j.apply_url)).slice(0, 5);
+    const maxApplies = config?.maxAppliesPerCycle || 5;
+    const minScore = config?.minApplyScore || 40;
+    const toApply = recommended
+      .filter(j => !appliedSet.has(j.apply_url) && (j.score || 0) >= minScore)
+      .slice(0, maxApplies);
 
     if (toApply.length === 0) return;
 

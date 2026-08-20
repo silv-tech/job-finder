@@ -158,21 +158,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Populate settings
     document.getElementById('review-toggle').checked = config?.reviewBeforeSend !== false;
     document.getElementById('auto-apply-toggle').checked = config?.autoApply || false;
+    document.getElementById('scan-interval-visible').value = config?.scanInterval || 60;
+    document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
+    document.getElementById('min-score').value = config?.minApplyScore || 40;
+
+    // Show/hide auto-apply config
+    if (config?.autoApply) {
+      document.getElementById('auto-apply-config').classList.remove('hidden');
+    }
     document.getElementById('api-url').value = config?.apiUrl || 'http://localhost:3000';
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
     // Auto-save toggles when changed
     document.getElementById('review-toggle').addEventListener('change', () => saveSettings(config));
-    document.getElementById('auto-apply-toggle').addEventListener('change', () => saveSettings(config));
+    document.getElementById('auto-apply-toggle').addEventListener('change', () => {
+      const isOn = document.getElementById('auto-apply-toggle').checked;
+      document.getElementById('auto-apply-config').classList.toggle('hidden', !isOn);
+      saveSettings(config);
+    });
+    document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings(config));
+    document.getElementById('max-applies').addEventListener('change', () => saveSettings(config));
+    document.getElementById('min-score').addEventListener('change', () => saveSettings(config));
 
     function saveSettings(baseConfig) {
+      const scanInterval = Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval-visible').value) || 60));
       const updatedConfig = {
         ...baseConfig,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
-        scanInterval: Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval').value) || 60)),
+        scanInterval,
+        maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
+        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 40)),
       };
+      // Update the hidden scan-interval too
+      document.getElementById('scan-interval').value = scanInterval;
+      // Update alarm with new interval
+      chrome.alarms.create('autoScan', { periodInMinutes: scanInterval });
       chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
     }
 
