@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ matches: [] });
     }
 
-    // If no AI available, do basic keyword matching
-    if (!client) {
+    // Use keyword matching for large batches (AI is too slow for 30+ jobs)
+    // AI matching is used for smaller scans only
+    if (!client || jobs.length > 30) {
       const matches = jobs.map((job) => {
         const desc = (job.title + ' ' + (job.description || '')).toLowerCase();
         // More flexible matching — split skills into individual keywords
