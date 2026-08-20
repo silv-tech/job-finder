@@ -317,8 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Open app
     document.getElementById('open-app-btn').addEventListener('click', () => {
-      const url = document.getElementById('api-url').value || 'http://localhost:3000';
-      chrome.tabs.create({ url });
+      chrome.tabs.create({ url: 'https://jobs.dlvasolutions.com' });
     });
 
     // Save settings
@@ -340,10 +339,43 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkConnection(updatedConfig.apiUrl);
     });
 
-    // Sync profile — opens the app's profile page
-    document.getElementById('sync-profile-btn').addEventListener('click', () => {
-      const url = document.getElementById('api-url').value || 'http://localhost:3000';
-      chrome.tabs.create({ url: url + '?tab=profile' });
+    // Sync profile — fetches profile from app and saves to extension config
+    document.getElementById('sync-profile-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('sync-profile-btn');
+      btn.textContent = 'Syncing...';
+      btn.disabled = true;
+
+      try {
+        const { authToken } = await chrome.storage.local.get('authToken');
+        const apiUrl = document.getElementById('api-url').value || 'http://localhost:3000';
+
+        const res = await fetch(`${apiUrl}/api/extension/profile`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profile) {
+            // Save profile to extension config
+            const { config: currentConfig } = await chrome.storage.local.get('config');
+            const updatedConfig = { ...currentConfig, profile: data.profile };
+            await chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
+            btn.textContent = 'Synced!';
+            setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
+          } else {
+            btn.textContent = 'No profile found. Set it up in the app first.';
+            setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 3000);
+          }
+        } else {
+          btn.textContent = 'Sync failed';
+          setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
+        }
+      } catch {
+        btn.textContent = 'Sync failed';
+        setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     // Logout

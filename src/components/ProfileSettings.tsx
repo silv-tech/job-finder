@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
+import { useAuth } from '@/lib/auth-context';
 import { User, Save, Check, Plus, X } from 'lucide-react';
 
 export default function ProfileSettings() {
+  const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile>(getProfile());
   const [saved, setSaved] = useState(false);
   const [newSkill, setNewSkill] = useState('');
@@ -13,8 +15,18 @@ export default function ProfileSettings() {
     setProfile(getProfile());
   }, []);
 
-  function handleSave() {
+  async function handleSave() {
     saveProfile(profile);
+    // Also save to Supabase so extension can sync
+    try {
+      await fetch('/api/extension/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...profile, user_id: user?.id }),
+      });
+    } catch {
+      // Supabase not configured, still saved locally
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }

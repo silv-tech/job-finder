@@ -44,6 +44,24 @@ CREATE TABLE message_log (
   sent_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- User profiles (synced with extension)
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID UNIQUE NOT NULL,
+  name TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  portfolio_url TEXT DEFAULT '',
+  linkedin_url TEXT DEFAULT '',
+  upwork_url TEXT DEFAULT '',
+  resume_url TEXT DEFAULT '',
+  headline TEXT DEFAULT '',
+  skills TEXT[] DEFAULT '{}',
+  bio TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Indexes
 CREATE INDEX idx_saved_jobs_status ON saved_jobs(status);
 CREATE INDEX idx_saved_jobs_source_id ON saved_jobs(source_id);
