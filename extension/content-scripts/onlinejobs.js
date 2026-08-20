@@ -1117,7 +1117,7 @@
             </div>
             <div class="jf-panel-body">
               <p class="jf-error">${escapeHtml(result.error)}</p>
-              <p class="jf-status">Make sure your Job Finder app is running on localhost:3000</p>
+              <p class="jf-status">Check your connection and try again.</p>
             </div>
           </div>
         `);
