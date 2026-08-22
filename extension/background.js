@@ -245,6 +245,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'autoScanWhenReady') {
+    // Wait for the tab to load, then auto-scan
+    handleAutoScanWhenReady(message.tabId).then(sendResponse);
+    return true;
+  }
+
   if (message.action === 'scanMultiplePages') {
     const tabId = message.tabId || sender.tab?.id;
     handleScanMultiplePages(message.baseUrl, message.maxPages, tabId).then(sendResponse);
@@ -360,6 +366,26 @@ async function updateStats(add) {
   current.applied += add.applied || 0;
 
   await chrome.storage.local.set({ stats: current });
+}
+
+// Auto-scan a tab once it finishes loading
+async function handleAutoScanWhenReady(tabId) {
+  try {
+    await waitForTabLoad(tabId);
+    await sleep(2500); // Let JS render the job listings
+
+    // Send scan command to the content script
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: 'scanJobs' });
+    } catch {
+      await sleep(2000);
+      await chrome.tabs.sendMessage(tabId, { action: 'scanJobs' });
+    }
+
+    return { success: true };
+  } catch {
+    return { error: 'Could not auto-scan' };
+  }
 }
 
 // Orchestrate multi-page scanning using a hidden background tab

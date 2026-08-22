@@ -226,15 +226,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch {}
     });
 
-    // Job search input - opens OLJ with search query
+    // Job search input - opens OLJ with search query and auto-scans
     document.getElementById('job-search-input').addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
       const query = e.target.value.trim();
       if (!query) return;
 
       const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${encodeURIComponent(query)}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
-      await chrome.tabs.create({ url: searchUrl });
+      const tab = await chrome.tabs.create({ url: searchUrl });
       e.target.value = '';
+
+      // Tell background to auto-scan once the tab loads
+      chrome.runtime.sendMessage({ action: 'autoScanWhenReady', tabId: tab.id });
     });
 
     // Scan button
