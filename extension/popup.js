@@ -233,11 +233,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!query) return;
 
       const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${encodeURIComponent(query)}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
-      const tab = await chrome.tabs.create({ url: searchUrl });
+      // Save pending scan so background picks it up
+      await chrome.storage.local.set({ pendingScanTabSearch: true });
+      await chrome.tabs.create({ url: searchUrl });
       e.target.value = '';
-
-      // Tell background to auto-scan once the tab loads
-      chrome.runtime.sendMessage({ action: 'autoScanWhenReady', tabId: tab.id });
     });
 
     // Scan button

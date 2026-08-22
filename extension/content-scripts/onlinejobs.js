@@ -1336,9 +1336,23 @@
     }
   }
 
+  async function onPageReady() {
+    await checkPendingApply();
+
+    // Check if this page was opened from the extension search
+    if (window.location.href.includes('onlinejobs.ph') && window.location.href.includes('jobkeyword')) {
+      const { pendingScanTabSearch } = await chrome.storage.local.get('pendingScanTabSearch');
+      if (pendingScanTabSearch) {
+        await chrome.storage.local.remove('pendingScanTabSearch');
+        await sleep(2000); // Let job listings render
+        await scanAndMatch();
+      }
+    }
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', checkPendingApply);
+    document.addEventListener('DOMContentLoaded', onPageReady);
   } else {
-    checkPendingApply();
+    onPageReady();
   }
 })();
