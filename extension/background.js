@@ -80,7 +80,7 @@ async function handleAutoApplyCycle(tabId) {
     if (jobs.length === 0) return;
 
     // Step 2: Match jobs
-    const apiUrl = config?.apiUrl || 'http://localhost:3000';
+    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     const headers = await getAuthHeaders();
 
     const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
@@ -472,7 +472,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     } catch {}
 
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || 'http://localhost:3000';
+    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     const headers = await getAuthHeaders();
 
     const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {

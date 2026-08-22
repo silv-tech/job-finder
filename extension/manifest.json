@@ -14,7 +14,7 @@
     "https://www.onlinejobs.ph/*",
     "https://v2.onlinejobs.ph/*",
     "https://onlinejobs.ph/*",
-    "http://localhost:3000/*",
+    "https://jobs.dlvasolutions.com/*",
     "https://*.vercel.app/*"
   ],
   "background": {
