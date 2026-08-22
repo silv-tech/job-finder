@@ -69,7 +69,7 @@ CRITICAL — READ THE FULL JOB DESCRIPTION CAREFULLY:
 2. APPLICATION REQUIREMENTS (VERY IMPORTANT): Many job posts end with specific questions like "When applying, please explain...", "Tell us about...", "Please briefly describe...". You MUST find and answer ALL of these. If the post asks 5 questions, answer all 5 using the applicant's real experience. Missing these makes the application look like spam.
 
 3. WRITING STYLE:
-- NEVER use the em dash character. Use a comma, period, or rewrite the sentence.
+- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. Use a comma, period, or rewrite the sentence instead. This is the #1 rule.
 - Write like a real person who genuinely wants this job. Sincere, warm, grounded.
 - Simple, natural language. Short sentences.
 - No AI-sounding phrases like "I'm excited to", "leverage my skills", "dynamic team", "thriving environment".

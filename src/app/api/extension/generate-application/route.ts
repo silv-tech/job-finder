@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       const skills = profile.skills?.slice(0, 4).join(', ') || 'various technologies';
       const coverLetter = `Hi,
 
-I saw your listing for ${job.title} and wanted to reach out. I've been building apps and systems for over 6 years — shipped 7+ products, managed teams of 30+, and helped scale a business from $40K to $200K/month.
+I saw your listing for ${job.title} and wanted to reach out. I've been building apps and systems for over 6 years. Shipped 7+ products, managed teams of 30+, and helped scale a business from $40K to $200K/month.
 
 I'm experienced with ${skills}, and I pick things up fast. I'd love to discuss how I can contribute to your team.
 
@@ -107,7 +107,7 @@ Many job posts include hidden tests like "Put 'Orange' in your subject line", "S
 Many job posts end with specific questions or requirements like "When applying, please explain...", "In your application, include...", "Please briefly describe...", "Tell us about...", etc. You MUST find and answer ALL of these. If the job post asks 5 questions, answer all 5. If it says "briefly explain your experience with X", do that. Missing these makes the application look like spam. Address each requirement directly using the applicant's actual experience from their profile.
 
 3. WRITING STYLE RULES:
-- NEVER use the em dash character. Use a comma, period, or rewrite the sentence.
+- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. Use a comma, period, or rewrite the sentence instead. This is the #1 rule.
 - Write like a real person who genuinely wants this job. Sincere, warm, grounded.
 - Use simple, natural language. Short sentences.
 - Do NOT sound polished, corporate, or AI-generated. No buzzwords.
