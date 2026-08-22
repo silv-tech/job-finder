@@ -226,6 +226,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch {}
     });
 
+    // Job search input - opens OLJ with search query
+    document.getElementById('job-search-input').addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      const query = e.target.value.trim();
+      if (!query) return;
+
+      const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${encodeURIComponent(query)}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
+      await chrome.tabs.create({ url: searchUrl });
+      e.target.value = '';
+    });
+
     // Scan button
     document.getElementById('scan-btn').addEventListener('click', async () => {
       const btn = document.getElementById('scan-btn');
