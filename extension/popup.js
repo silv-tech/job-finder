@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { authToken, userEmail } = await chrome.storage.local.get(['authToken', 'userEmail']);
 
   if (authToken) {
-    // Verify token is still valid
     const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
 
@@ -31,7 +30,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch {}
 
-    // Token invalid — clear and show login
+    // Token expired — try to refresh it
+    const { authRefreshToken } = await chrome.storage.local.get('authRefreshToken');
+    if (authRefreshToken) {
+      try {
+        const supabaseRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
+        if (supabaseRes.ok) {
+          const { url: supabaseUrl, anonKey } = await supabaseRes.json();
+          const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
+            body: JSON.stringify({ refresh_token: authRefreshToken }),
+          });
+          const refreshData = await refreshRes.json();
+          if (refreshRes.ok && refreshData.access_token) {
+            await chrome.storage.local.set({
+              authToken: refreshData.access_token,
+              authRefreshToken: refreshData.refresh_token,
+              userEmail: refreshData.user?.email || userEmail,
+            });
+            clearTimeout(loadingTimeout);
+            loadingView.classList.add('hidden');
+            showMainView(refreshData.user?.email || userEmail || 'User', config);
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    // Refresh failed — clear and show login
     await chrome.storage.local.remove(['authToken', 'userEmail', 'authRefreshToken']);
   }
 

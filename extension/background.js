@@ -16,14 +16,52 @@ const DEFAULT_CONFIG = {
   },
 };
 
-// Get auth headers for API calls
+// Get auth headers for API calls, auto-refresh if needed
 async function getAuthHeaders() {
-  const { authToken } = await chrome.storage.local.get('authToken');
+  let { authToken } = await chrome.storage.local.get('authToken');
   const headers = { 'Content-Type': 'application/json' };
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
   return headers;
+}
+
+async function refreshTokenIfNeeded() {
+  const { authToken, authRefreshToken } = await chrome.storage.local.get(['authToken', 'authRefreshToken']);
+  if (!authToken || !authRefreshToken) return false;
+
+  const { config } = await chrome.storage.local.get('config');
+  const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+
+  // Check if current token works
+  try {
+    const res = await fetch(`${apiUrl}/api/auth/session`, {
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    });
+    if (res.ok) return true;
+  } catch {}
+
+  // Token expired, refresh it
+  try {
+    const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
+    if (!cfgRes.ok) return false;
+    const { url: supabaseUrl, anonKey } = await cfgRes.json();
+
+    const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
+      body: JSON.stringify({ refresh_token: authRefreshToken }),
+    });
+    const data = await refreshRes.json();
+    if (refreshRes.ok && data.access_token) {
+      await chrome.storage.local.set({
+        authToken: data.access_token,
+        authRefreshToken: data.refresh_token,
+      });
+      return true;
+    }
+  } catch {}
+  return false;
 }
 
 // Check if user is authenticated
@@ -39,10 +77,16 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
   chrome.alarms.create('autoScan', { periodInMinutes: DEFAULT_CONFIG.scanInterval });
+  chrome.alarms.create('refreshToken', { periodInMinutes: 45 });
 });
 
-// Handle periodic auto-apply
+// Handle periodic tasks
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'refreshToken') {
+    await refreshTokenIfNeeded();
+    return;
+  }
+
   if (alarm.name === 'autoScan') {
     if (!(await isAuthenticated())) return;
 
