@@ -771,7 +771,7 @@
           </div>
           <div class="jf-match-info">
             <div class="jf-match-title">${escapeHtml(m.title)}</div>
-            <div class="jf-match-company">${escapeHtml(m.company || '')}</div>
+            <div class="jf-match-company">${escapeHtml(m.company || '')}${m.posted_at ? ` · ${timeAgo(m.posted_at)}` : ''}</div>
             ${m.salary ? `<div class="jf-match-salary">${escapeHtml(m.salary)}</div>` : ''}
           </div>
         </div>
@@ -1292,6 +1292,22 @@
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHrs = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    if (diffDays === 1) return '1 day ago';
+    if (diffDays < 30) return `${diffDays} days ago`;
+    return dateStr;
   }
 
   function escapeHtml(str) {
