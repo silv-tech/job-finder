@@ -1359,7 +1359,7 @@
         overlay.querySelector('#jf-autofill')?.addEventListener('click', async () => {
           overlay.querySelector('#jf-autofill').textContent = 'Filling...';
           overlay.querySelector('#jf-autofill').disabled = true;
-          await fillAndSubmit(job, formFields);
+          await handleFillApplyForm(job);
         });
       }
     }
