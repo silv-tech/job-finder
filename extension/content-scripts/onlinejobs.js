@@ -808,15 +808,19 @@
       btn.addEventListener('click', async (e) => {
         const idx = parseInt(e.target.dataset.index);
         const job = matches[idx];
-        e.target.textContent = 'Opening...';
+        e.target.textContent = 'Applying...';
         e.target.disabled = true;
 
-        // Open in a new tab and let background handle the apply flow there
-        const tab = await chrome.tabs.create({ url: job.apply_url, active: false });
-        chrome.runtime.sendMessage({ action: 'navigateAndApplyInTab', job, tabId: tab.id });
+        // Tell background to open a new tab and handle the apply flow
+        const result = await chrome.runtime.sendMessage({ action: 'applyInNewTab', job });
 
-        e.target.textContent = 'Sent to new tab';
-        e.target.classList.add('jf-applied');
+        if (result?.error) {
+          e.target.textContent = 'Error';
+          setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
+        } else {
+          e.target.textContent = 'Sent!';
+          e.target.classList.add('jf-applied');
+        }
       });
     });
 

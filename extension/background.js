@@ -317,6 +317,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'applyInNewTab') {
+    (async () => {
+      try {
+        const tab = await chrome.tabs.create({ url: message.job.apply_url, active: false });
+        const result = await handleNavigateAndApply(message.job, tab.id);
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
   if (message.action === 'navigateAndApply') {
     // Background orchestrates: navigate tab, wait for load, tell content script to apply
     handleNavigateAndApply(message.job, sender.tab.id).then(sendResponse);
