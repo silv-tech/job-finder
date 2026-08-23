@@ -1296,7 +1296,7 @@
 
   function timeAgo(dateStr) {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
+    const date = new Date(dateStr + (dateStr.includes('T') || dateStr.includes('+') ? '' : ' GMT+0800'));
     if (isNaN(date.getTime())) return '';
     const now = new Date();
     const diffMs = now - date;
