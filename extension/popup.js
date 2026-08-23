@@ -189,9 +189,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
     document.getElementById('min-score').value = config?.minApplyScore || 40;
 
-    // Show/hide auto-apply config
+    // Show/hide auto-apply config + countdown timer
     if (config?.autoApply) {
       document.getElementById('auto-apply-config').classList.remove('hidden');
+      startCountdownTimer();
+    }
+
+    function startCountdownTimer() {
+      const timerEl = document.getElementById('auto-apply-timer');
+      if (!timerEl) return;
+
+      function updateTimer() {
+        chrome.alarms.get('autoScan', (alarm) => {
+          if (!alarm) {
+            timerEl.textContent = 'Auto-apply is active';
+            return;
+          }
+          const remaining = Math.max(0, alarm.scheduledTime - Date.now());
+          const mins = Math.floor(remaining / 60000);
+          const secs = Math.floor((remaining % 60000) / 1000);
+          timerEl.innerHTML = `Next scan in <strong>${mins}m ${secs.toString().padStart(2, '0')}s</strong>`;
+        });
+      }
+
+      updateTimer();
+      setInterval(updateTimer, 1000);
     }
     document.getElementById('api-url').value = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
