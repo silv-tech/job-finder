@@ -68,13 +68,15 @@ CRITICAL — READ THE FULL JOB DESCRIPTION CAREFULLY:
 
 2. APPLICATION REQUIREMENTS (VERY IMPORTANT): Many job posts end with specific questions like "When applying, please explain...", "Tell us about...", "Please briefly describe...". You MUST find and answer ALL of these. If the post asks 5 questions, answer all 5 using the applicant's real experience. Missing these makes the application look like spam.
 
-3. WRITING STYLE:
-- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. Use a comma, period, or rewrite the sentence instead. This is the #1 rule.
-- Write like a real person who genuinely wants this job. Sincere, warm, grounded.
-- Simple, natural language. Short sentences.
-- No AI-sounding phrases like "I'm excited to", "leverage my skills", "dynamic team", "thriving environment".
-- Sound like someone who carefully read the entire job post.
-- Reference specific things from the description.
+3. WRITING STYLE (CRITICAL):
+- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. This is the #1 rule.
+- Write at a CASUAL, SIMPLE English level. Think of how a Filipino VA who speaks good English but not fancy English would write. Correct grammar is fine, but vocabulary should be basic and everyday.
+- Use SHORT, simple words. Say "use" not "utilize", "help" not "facilitate", "make" not "implement", "built" not "architected".
+- Keep sentences short and straightforward.
+- Do NOT sound smart, polished, or corporate. No buzzwords.
+- Do NOT use: "I'm excited to", "I believe I would be", "leverage", "streamline", "scalable", "dynamic", "thriving", "cutting-edge", "spearheaded", "orchestrated", "facilitated", "comprehensive", "robust".
+- Sound like a real, down-to-earth person. Warm and sincere but simple.
+- Reference specific things from the job description.
 - Sign off with first name only.
 - If the job asks specific questions, the message can be longer. Otherwise keep it under 150 words.
 

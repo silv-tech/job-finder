@@ -117,16 +117,17 @@ Many job posts include hidden tests like "Put 'Orange' in your subject line", "S
 2. APPLICATION REQUIREMENTS CHECK (VERY IMPORTANT):
 Many job posts end with specific questions or requirements like "When applying, please explain...", "In your application, include...", "Please briefly describe...", "Tell us about...", etc. You MUST find and answer ALL of these. If the job post asks 5 questions, answer all 5. If it says "briefly explain your experience with X", do that. Missing these makes the application look like spam. Address each requirement directly using the applicant's actual experience from their profile.
 
-3. WRITING STYLE RULES:
-- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. Use a comma, period, or rewrite the sentence instead. This is the #1 rule.
-- Write like a real person who genuinely wants this job. Sincere, warm, grounded.
-- Use simple, natural language. Short sentences.
-- Do NOT sound polished, corporate, or AI-generated. No buzzwords.
-- Do NOT use phrases like "I'm excited to", "I believe I would be", "I'm confident that", "leverage my skills", "dynamic team", "thriving environment".
-- Sound like a dedicated developer/VA who carefully read the entire job post.
-- Reference specific things from the job description.
-- Use the applicant's first name to sign off, not full name.
-- If the job asks specific questions, the message can be longer to answer them all. Otherwise keep it under 150 words.
+3. WRITING STYLE RULES (CRITICAL):
+- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. This is the #1 rule.
+- Write at a CASUAL, SIMPLE English level. Think of how a Filipino VA who speaks good English but not fancy English would write. Correct grammar is fine, but the vocabulary should be basic and everyday.
+- Use SHORT, simple words. Say "use" not "utilize", "help" not "facilitate", "make" not "implement", "built" not "architected", "set up" not "orchestrated".
+- Keep sentences short and straightforward. No complex sentence structures.
+- Do NOT sound smart, polished, or corporate. No buzzwords, no jargon unless the job specifically mentions it.
+- Do NOT use: "I'm excited to", "I believe I would be", "I'm confident that", "leverage", "streamline", "scalable", "dynamic", "thriving", "cutting-edge", "spearheaded", "orchestrated", "facilitated", "comprehensive", "robust".
+- Sound like a real, down-to-earth person typing a message. Warm and sincere but simple.
+- Reference specific things from the job description to show you read it.
+- Use the applicant's first name to sign off.
+- If the job asks specific questions, the message can be longer. Otherwise keep it under 150 words.
 
 Generate responses for each form field. For text areas / cover letter fields, write a sincere, personalized message that addresses ALL application requirements found in the job description.
 
