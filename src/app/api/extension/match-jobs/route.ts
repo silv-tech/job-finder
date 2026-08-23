@@ -39,9 +39,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ matches: [] });
     }
 
-    // Use keyword matching for large batches (AI is too slow for 30+ jobs)
-    // AI matching is used for smaller scans only
-    if (!client || jobs.length > 30) {
+    // Always use fast keyword matching for job scanning
+    // AI is reserved for writing actual applications where quality matters
+    if (true) {
       const matches = jobs.map((job) => {
         const desc = (job.title + ' ' + (job.description || '')).toLowerCase();
         // More flexible matching — split skills into individual keywords
@@ -65,53 +65,6 @@ export async function POST(req: NextRequest) {
         matches: matches.filter((m) => m.score > 0).sort((a, b) => b.score - a.score),
       });
     }
-
-    // AI-powered matching
-    const jobSummaries = jobs.map((j, i) => `[${i}] "${j.title}" at ${j.company}: ${j.description?.slice(0, 300)}`).join('\n\n');
-
-    const message = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: `Score these job listings for a candidate. Return ONLY a JSON array.
-
-CANDIDATE:
-- Headline: ${profile.headline}
-- Skills: ${profile.skills.join(', ')}
-- Bio: ${profile.bio}
-
-JOBS:
-${jobSummaries}
-
-For each job, return: {"index": number, "score": 0-100, "reason": "1 sentence why this is/isn't a good match", "should_apply": boolean}
-
-Only include jobs with score >= 30. Sort by score descending. Return as a JSON array.`,
-        },
-      ],
-    });
-
-    const content = message.content?.[0];
-    if (!content || content.type !== 'text') {
-      return NextResponse.json({ matches: [] });
-    }
-
-    let text = content.text.trim();
-    if (text.startsWith('```')) {
-      text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
-    const scored: { index: number; score: number; reason: string; should_apply: boolean }[] = JSON.parse(text);
-
-    const matches = scored.map((s) => ({
-      ...jobs[s.index],
-      score: s.score,
-      reason: s.reason,
-      should_apply: s.should_apply,
-    }));
-
-    return NextResponse.json({ matches });
   } catch (err) {
     console.error('Match jobs error:', err);
     return NextResponse.json({ error: String(err), matches: [] }, { status: 500 });
