@@ -814,7 +814,11 @@
         // Tell background to open a new tab and handle the apply flow
         const result = await chrome.runtime.sendMessage({ action: 'applyInNewTab', job });
 
-        if (result?.error) {
+        if (result?.manual_required) {
+          e.target.textContent = 'Manual';
+          e.target.style.background = '#fef3c7';
+          e.target.style.color = '#92400e';
+        } else if (result?.error) {
           e.target.textContent = 'Error';
           setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
         } else {
