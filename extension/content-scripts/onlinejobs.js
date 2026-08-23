@@ -91,8 +91,8 @@
 
   async function handleClickApplyButton() {
     // Check if already applied
-    const allButtons = document.querySelectorAll('a, button, span, div');
-    for (const el of allButtons) {
+    const pageElements = document.querySelectorAll('a, button, span, div');
+    for (const el of pageElements) {
       const text = el.textContent?.trim()?.toLowerCase() || '';
       if (text === 'applied' || text.includes('date applied')) {
         return { found: false, navigated: false, already_applied: true, description: '' };
