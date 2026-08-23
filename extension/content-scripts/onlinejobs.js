@@ -90,6 +90,15 @@
   });
 
   async function handleClickApplyButton() {
+    // Check if already applied
+    const allButtons = document.querySelectorAll('a, button, span, div');
+    for (const el of allButtons) {
+      const text = el.textContent?.trim()?.toLowerCase() || '';
+      if (text === 'applied' || text.includes('date applied')) {
+        return { found: false, navigated: false, already_applied: true, description: '' };
+      }
+    }
+
     // Scrape the full job description from the detail page BEFORE navigating away
     let fullDescription = '';
     const descContainers = document.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details');

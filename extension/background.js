@@ -175,6 +175,11 @@ async function handleAutoApplyCycle(tabId) {
           } catch { continue; }
         }
 
+        if (clickResult?.already_applied) {
+          appliedSet.add(job.apply_url);
+          continue; // Skip, don't count
+        }
+
         if (clickResult?.description) {
           job.description = clickResult.description;
         }
