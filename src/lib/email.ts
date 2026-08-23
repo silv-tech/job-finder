@@ -44,7 +44,7 @@ export async function sendAlertEmail(
   if (!client) return { success: false, error: 'Resend API key not configured', code: 'CONFIG_ERROR' };
 
   const jobList = jobs
-    .map((j) => `<li><strong>${j.title}</strong> at ${j.company} — <a href="${j.apply_url}">Apply</a></li>`)
+    .map((j) => `<li><strong>${j.title}</strong> at ${j.company} - <a href="${j.apply_url}">Apply</a></li>`)
     .join('\n');
 
   try {
