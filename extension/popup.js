@@ -185,7 +185,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Populate settings
     document.getElementById('review-toggle').checked = config?.reviewBeforeSend !== false;
     document.getElementById('auto-apply-toggle').checked = config?.autoApply || false;
-    document.getElementById('scan-interval-visible').value = config?.scanInterval || 60;
+    document.getElementById('auto-apply-keywords').value = config?.autoApplyKeywords || '';
+    document.getElementById('scan-interval-visible').value = config?.scanInterval || 5;
     document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
     document.getElementById('min-score').value = config?.minApplyScore || 40;
 
@@ -220,6 +221,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Auto-save toggles when changed
     document.getElementById('review-toggle').addEventListener('change', () => saveSettings(config));
+    document.getElementById('auto-apply-keywords').addEventListener('change', () => saveSettings(config));
     document.getElementById('auto-apply-toggle').addEventListener('change', () => {
       const isOn = document.getElementById('auto-apply-toggle').checked;
       document.getElementById('auto-apply-config').classList.toggle('hidden', !isOn);
@@ -235,6 +237,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ...baseConfig,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
+        autoApplyKeywords: document.getElementById('auto-apply-keywords').value.trim(),
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval,
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),

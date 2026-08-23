@@ -3,7 +3,7 @@
 const DEFAULT_CONFIG = {
   apiUrl: 'https://jobs.dlvasolutions.com',
   autoApply: false,
-  scanInterval: 60,
+  scanInterval: 5,
   profile: {
     name: '',
     email: '',
@@ -92,16 +92,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) return;
+    if (!config?.autoApplyKeywords) return; // Need keywords to search
 
-    // Find an onlinejobs.ph tab that's on a search/job listing page
-    const tabs = await chrome.tabs.query({ url: '*://*.onlinejobs.ph/*' });
-    const searchTab = tabs.find(t => t.url?.includes('jobsearch') || t.url?.includes('jobkeyword'));
-    if (!searchTab) return;
+    // Open a fresh search in a hidden tab with newest results
+    const keywords = encodeURIComponent(config.autoApplyKeywords);
+    const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${keywords}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
+    const tab = await chrome.tabs.create({ url: searchUrl, active: false });
 
-    const tabId = searchTab.id;
+    await waitForTabLoad(tab.id);
+    await sleep(3000); // Let JS render
 
-    // Run the full auto-apply cycle
-    await handleAutoApplyCycle(tabId);
+    await handleAutoApplyCycle(tab.id);
+
+    // Close the search tab after scanning
+    try { await chrome.tabs.remove(tab.id); } catch {}
   }
 });
 
