@@ -140,6 +140,7 @@
     const application = await chrome.runtime.sendMessage({
       action: 'generateApplication', job, formFields,
     });
+    if (application.manual_required) return { success: false, manual_required: true, requirements: application.requirements };
     if (application.error) return { success: false, error: application.error };
 
     fillFormFields(formFields, application);
@@ -187,6 +188,25 @@
       job,
       formFields,
     });
+
+    if (application.manual_required) {
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Manual Action Needed</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-error" style="margin-bottom:8px;">This job requires something that can't be automated:</p>
+            <ul style="margin:0;padding-left:16px;font-size:13px;color:#1e293b;">
+              ${application.requirements.map(r => `<li style="margin-bottom:4px;">${escapeHtml(r)}</li>`).join('')}
+            </ul>
+            <p class="jf-status" style="margin-top:12px;">You'll need to handle this one yourself.</p>
+          </div>
+        </div>
+      `);
+      return { success: false, manual_required: true };
+    }
 
     if (application.error) {
       return { success: false, error: application.error };

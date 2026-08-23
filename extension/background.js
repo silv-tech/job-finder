@@ -195,24 +195,29 @@ async function handleAutoApplyCycle(tabId) {
           } catch { continue; }
         }
 
-        if (fillResult?.success) {
+        if (fillResult?.manual_required) {
+          // Notify user about this job needing manual action
+          chrome.notifications.create({
+            type: 'basic',
+            title: 'Manual Action Needed',
+            message: `"${job.title}" requires: ${(fillResult.requirements || ['manual steps']).join(', ')}`,
+            iconUrl: 'icons/icon128.png',
+          });
+          appliedSet.add(job.apply_url); // Don't retry this job
+        } else if (fillResult?.success) {
           appliedCount++;
-          // Track applied URLs so we don't re-apply
           appliedSet.add(job.apply_url);
           await handleSaveJob(job);
           await logApplication(job);
         }
 
-        await sleep(3000); // Pace between applications
+        await sleep(3000);
       } catch {
         continue;
       }
     }
 
-    // Save applied URLs
     await chrome.storage.local.set({ appliedUrls: [...appliedSet] });
-
-    // Close hidden tab
     await chrome.tabs.remove(bgTab.id);
 
     // Notify user

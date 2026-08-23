@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyExtensionAuth } from '@/lib/auth-api';
 import { AI_MODEL } from '@/lib/ai-config';
+import { detectManualRequirements } from '@/lib/manual-requirements';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,17 @@ export async function POST(req: NextRequest) {
   try {
     const { job, profile, form_fields } = await req.json();
 
-    // Fallback when no AI available — use template-based generation
+    // Check for manual requirements that can't be automated
+    const manualCheck = detectManualRequirements(job.description || '');
+    if (manualCheck.hasManual) {
+      return NextResponse.json({
+        manual_required: true,
+        requirements: manualCheck.requirements,
+        error: 'This job requires manual action: ' + manualCheck.requirements.join(', '),
+      });
+    }
+
+    // Fallback when no AI available, use template-based generation
     if (!client) {
       const skills = profile.skills?.slice(0, 4).join(', ') || 'various technologies';
       const coverLetter = `Hi,
