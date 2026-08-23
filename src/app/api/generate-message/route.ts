@@ -106,7 +106,10 @@ Respond in this exact JSON format:
     }
 
     const parsed = JSON.parse(text);
-    return NextResponse.json({ subject: parsed.subject, body: parsed.body });
+    // Strip em dashes
+    const subject = (parsed.subject || '').replace(/—/g, ',');
+    const body = (parsed.body || '').replace(/—/g, ',');
+    return NextResponse.json({ subject, body });
   } catch (err) {
     console.error('AI generation error:', err);
     return NextResponse.json(

@@ -146,6 +146,16 @@ Example format:
     }
 
     const parsed = JSON.parse(text);
+    // Strip em dashes from all text fields
+    if (parsed.subject) parsed.subject = parsed.subject.replace(/—/g, ',');
+    if (parsed.cover_letter) parsed.cover_letter = parsed.cover_letter.replace(/—/g, ',');
+    if (parsed.fields) {
+      for (const key of Object.keys(parsed.fields)) {
+        if (typeof parsed.fields[key] === 'string') {
+          parsed.fields[key] = parsed.fields[key].replace(/—/g, ',');
+        }
+      }
+    }
     return NextResponse.json(parsed);
   } catch (err) {
     console.error('Generate application error:', err);
