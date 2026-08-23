@@ -93,11 +93,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) return;
 
-    // Find any onlinejobs.ph tab
+    // Find an onlinejobs.ph tab that's on a search/job listing page
     const tabs = await chrome.tabs.query({ url: '*://*.onlinejobs.ph/*' });
-    if (tabs.length === 0) return;
+    const searchTab = tabs.find(t => t.url?.includes('jobsearch') || t.url?.includes('jobkeyword'));
+    if (!searchTab) return;
 
-    const tabId = tabs[0].id;
+    const tabId = searchTab.id;
 
     // Run the full auto-apply cycle
     await handleAutoApplyCycle(tabId);
