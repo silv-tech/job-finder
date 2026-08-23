@@ -807,10 +807,15 @@
     overlay.querySelectorAll('.jf-btn-apply').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         const idx = parseInt(e.target.dataset.index);
-        e.target.textContent = 'Applying...';
+        const job = matches[idx];
+        e.target.textContent = 'Opening...';
         e.target.disabled = true;
-        await navigateAndApply(matches[idx]);
-        e.target.textContent = 'Applied!';
+
+        // Open in a new tab and let background handle the apply flow there
+        const tab = await chrome.tabs.create({ url: job.apply_url, active: false });
+        chrome.runtime.sendMessage({ action: 'navigateAndApplyInTab', job, tabId: tab.id });
+
+        e.target.textContent = 'Sent to new tab';
         e.target.classList.add('jf-applied');
       });
     });

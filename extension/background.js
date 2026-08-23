@@ -312,6 +312,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'navigateAndApplyInTab') {
+    handleNavigateAndApply(message.job, message.tabId).then(sendResponse);
+    return true;
+  }
+
   if (message.action === 'navigateAndApply') {
     // Background orchestrates: navigate tab, wait for load, tell content script to apply
     handleNavigateAndApply(message.job, sender.tab.id).then(sendResponse);
