@@ -1344,8 +1344,73 @@
       const { pendingScanTabSearch } = await chrome.storage.local.get('pendingScanTabSearch');
       if (pendingScanTabSearch) {
         await chrome.storage.local.remove('pendingScanTabSearch');
-        await sleep(2000); // Let job listings render
+        await sleep(2000);
         await scanAndMatch();
+      }
+    }
+
+    // If on a job detail page, show a floating "Quick Apply" button
+    if (window.location.href.match(/\/jobseekers\/job\/|\/job\/[a-z0-9-]+-\d+/)) {
+      await sleep(1500);
+      const applyBtn = document.querySelector('a, button');
+      let hasApplyButton = false;
+      document.querySelectorAll('a, button').forEach((btn) => {
+        const text = btn.textContent?.trim()?.toLowerCase() || '';
+        if (text.includes('apply') && !text.includes('applied')) hasApplyButton = true;
+      });
+
+      if (hasApplyButton) {
+        const floatingBtn = document.createElement('div');
+        floatingBtn.id = 'jf-quick-apply';
+        floatingBtn.innerHTML = `
+          <button id="jf-quick-apply-btn" style="
+            display:flex;align-items:center;gap:8px;
+            background:#0f172a;color:#fff;border:none;
+            padding:12px 20px;border-radius:14px;
+            font-size:13px;font-weight:600;cursor:pointer;
+            box-shadow:0 4px 20px rgba(0,0,0,0.2);
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+            transition:all 0.2s;
+          ">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4z"/></svg>
+            Quick Apply
+          </button>
+        `;
+        floatingBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;';
+        document.body.appendChild(floatingBtn);
+
+        floatingBtn.querySelector('#jf-quick-apply-btn').addEventListener('mouseover', (e) => {
+          e.target.closest('button').style.transform = 'scale(1.05)';
+        });
+        floatingBtn.querySelector('#jf-quick-apply-btn').addEventListener('mouseout', (e) => {
+          e.target.closest('button').style.transform = 'scale(1)';
+        });
+
+        floatingBtn.querySelector('#jf-quick-apply-btn').addEventListener('click', async () => {
+          const btn = floatingBtn.querySelector('#jf-quick-apply-btn');
+          btn.textContent = 'Applying...';
+          btn.style.opacity = '0.7';
+          btn.disabled = true;
+
+          // Scrape description from this page
+          const job = scrapeJobDetail() || {
+            id: Date.now().toString(),
+            title: document.querySelector('h1, h2')?.textContent?.trim() || 'This Position',
+            company: 'Unknown',
+            description: document.body.textContent?.slice(0, 6000) || '',
+            apply_url: window.location.href,
+            source: 'onlinejobs_ph',
+          };
+
+          // Use background script to handle the full flow
+          const result = await chrome.runtime.sendMessage({ action: 'navigateAndApply', job });
+
+          if (result?.error) {
+            btn.textContent = 'Error: ' + result.error;
+            btn.style.opacity = '1';
+            setTimeout(() => { btn.textContent = 'Quick Apply'; btn.disabled = false; }, 3000);
+          }
+        });
       }
     }
   }
