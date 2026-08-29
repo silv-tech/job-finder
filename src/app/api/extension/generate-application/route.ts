@@ -92,7 +92,7 @@ FULL RESUME/PORTFOLIO (use ONLY facts from this when writing the application, do
 ${profile.resume_text.slice(0, 5000)}
 ` : ''}
 IMPORTANT RULES:
-- When mentioning the portfolio, use the EXACT URL provided above (without https://). Never modify or guess URLs.
+- When mentioning the portfolio, write EXACTLY this: "dlvasolutions.com/portfolio" — no https://, no trailing slash, no extra words around the URL itself.
 - ALWAYS include the portfolio link in every message. Mention it naturally as proof of work.
 
 SUBJECT LINE RULES:

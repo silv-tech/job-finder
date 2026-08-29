@@ -1,4 +1,5 @@
 // OnlineJobs.ph content script — scrapes job listings and auto-applies
+console.log('[JF] Content script loaded on:', window.location.href);
 
 (function () {
   'use strict';
@@ -519,15 +520,18 @@
     // For individual job pages (/jobseekers/job/XXXXX)
     const title = document.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim();
 
-    // Get the main content area
-    const contentAreas = document.querySelectorAll('p, div, section');
+    // Use the same scraping logic as handleClickApplyButton (the automated flow)
     let description = '';
-    contentAreas.forEach((el) => {
+    const descContainers = document.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details');
+    descContainers.forEach((el) => {
       const text = el.textContent?.trim() || '';
-      if (text.length > description.length && text.length > 100) {
-        description = text;
-      }
+      if (text.length > description.length) description = text;
     });
+    // Fallback: grab the main content area (same as automated flow)
+    if (!description || description.length < 100) {
+      const main = document.querySelector('main, .container, #content, article') || document.body;
+      description = main.textContent?.trim()?.slice(0, 8000) || '';
+    }
 
     if (!title) return null;
 
@@ -539,12 +543,33 @@
     const salaryMatch = pageText.match(/\$[\d,]+(?:\s*[-–\/]\s*\$?[\d,]+)?(?:\s*\/\s*(?:hr|hour|mo|month))?/i);
     if (salaryMatch) salary = salaryMatch[0].trim();
 
+    // Try to extract actual company/employer name from the page
+    let company = 'OnlineJobs.ph Employer';
+    const employerLink = document.querySelector('a[href*="/employer/"]');
+    if (employerLink) {
+      company = employerLink.textContent?.trim() || company;
+    } else {
+      // Look for common patterns like "Company:" or "Employer:" labels
+      const labels = document.querySelectorAll('strong, b, label, dt, th');
+      for (const label of labels) {
+        const labelText = label.textContent?.trim()?.toLowerCase() || '';
+        if (labelText.includes('company') || labelText.includes('employer')) {
+          const next = label.nextSibling || label.nextElementSibling;
+          const val = (next?.textContent || '').trim();
+          if (val && val.length > 1 && val.length < 100) {
+            company = val;
+            break;
+          }
+        }
+      }
+    }
+
     return {
       id: idMatch ? idMatch[1] : Date.now().toString(),
       title: title.replace(/\s*(Full\s*Time|Part\s*Time|Freelance|Contract)\s*$/i, '').trim(),
-      company: 'OnlineJobs.ph Employer',
+      company,
       salary: salary || '',
-      description: description.slice(0, 2000),
+      description: description.slice(0, 8000),
       apply_url: window.location.href,
       location: 'Philippines (Remote)',
       source: 'onlinejobs_ph',
@@ -1334,40 +1359,50 @@
       const formFields = detectFormFields();
 
       if (formFields.length > 0) {
-        // Try to get the job title from the page
-        const pageTitle = document.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim() || 'This Position';
+        let job;
 
-        // The apply page might have some job info — grab everything we can
-        // Also check the "First contacted for Job:" link which has the job title and URL
-        let jobDetailUrl = '';
-        const jobLink = document.querySelector('a[href*="/jobseekers/job/"]');
-        if (jobLink) jobDetailUrl = jobLink.href;
+        // Check if we have cached job data from the detail page (user clicked native Apply button)
+        const { lastViewedJob } = await chrome.storage.local.get('lastViewedJob');
+        if (lastViewedJob) {
+          await chrome.storage.local.remove('lastViewedJob');
+          job = lastViewedJob;
+          job.apply_url = window.location.href; // Update to current apply URL
+        } else {
+          // Fallback: scrape what we can from the apply page itself
+          const pageTitle = document.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim() || 'This Position';
 
-        // Scrape what we can from this page
-        let pageDesc = document.body.textContent?.slice(0, 6000) || '';
+          // The apply page might have some job info — grab everything we can
+          // Also check the "First contacted for Job:" link which has the job title and URL
+          let jobDetailUrl = '';
+          const jobLink = document.querySelector('a[href*="/jobseekers/job/"]');
+          if (jobLink) jobDetailUrl = jobLink.href;
 
-        // If we found a link to the job detail page, fetch its content in background
-        if (jobDetailUrl) {
-          try {
-            const res = await fetch(jobDetailUrl);
-            const html = await res.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const fullDesc = doc.body.textContent?.slice(0, 8000) || '';
-            if (fullDesc.length > pageDesc.length) pageDesc = fullDesc;
-          } catch (e) {
-            // Could not fetch job detail page
+          // Scrape what we can from this page
+          let pageDesc = document.body.textContent?.slice(0, 6000) || '';
+
+          // If we found a link to the job detail page, fetch its content in background
+          if (jobDetailUrl) {
+            try {
+              const res = await fetch(jobDetailUrl);
+              const html = await res.text();
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const fullDesc = doc.body.textContent?.slice(0, 8000) || '';
+              if (fullDesc.length > pageDesc.length) pageDesc = fullDesc;
+            } catch (e) {
+              // Could not fetch job detail page
+            }
           }
-        }
 
-        const job = {
-          id: Date.now().toString(),
-          title: pageTitle,
-          company: 'Unknown',
-          description: pageDesc,
-          apply_url: window.location.href,
-          source: 'onlinejobs_ph',
-        };
+          job = {
+            id: Date.now().toString(),
+            title: pageTitle,
+            company: 'Unknown',
+            description: pageDesc,
+            apply_url: window.location.href,
+            source: 'onlinejobs_ph',
+          };
+        }
 
         showOverlay(`
           <div class="jf-panel jf-panel-small">
@@ -1386,9 +1421,23 @@
         `);
 
         overlay.querySelector('#jf-autofill')?.addEventListener('click', async () => {
-          overlay.querySelector('#jf-autofill').textContent = 'Filling...';
-          overlay.querySelector('#jf-autofill').disabled = true;
-          await handleFillApplyForm(job);
+          const btn = overlay.querySelector('#jf-autofill');
+          btn.textContent = 'Filling...';
+          btn.disabled = true;
+          try {
+            console.log('[JF] Auto-fill job data:', JSON.stringify(job).slice(0, 500));
+            const result = await handleFillApplyForm(job);
+            if (result?.error) {
+              btn.textContent = 'Error: ' + result.error;
+              btn.disabled = false;
+              setTimeout(() => { btn.textContent = 'Auto-Fill Application'; }, 5000);
+            }
+          } catch (err) {
+            console.error('[JF] Auto-fill error:', err);
+            btn.textContent = 'Error - try again';
+            btn.disabled = false;
+            setTimeout(() => { btn.textContent = 'Auto-Fill Application'; }, 5000);
+          }
         });
       }
     }
@@ -1408,8 +1457,23 @@
     }
 
     // If on a job detail page, show a floating "Quick Apply" button
+    console.log('[JF] onPageReady URL:', window.location.href);
     if (window.location.href.match(/\/jobseekers\/job\/|\/job\/[a-z0-9-]+-\d+/)) {
+      console.log('[JF] Detected job detail page, caching job data...');
       await sleep(1500);
+
+      // Always cache the current job detail for manual apply flow
+      // If the user clicks the site's native "Apply" button, this data will be available on /apply
+      const cachedJob = scrapeJobDetail() || {
+        id: (window.location.href.match(/-(\d+)$/) || [])[1] || Date.now().toString(),
+        title: document.querySelector('h1, h2')?.textContent?.trim() || 'This Position',
+        company: 'Unknown',
+        description: document.body.textContent?.slice(0, 8000) || '',
+        apply_url: window.location.href,
+        source: 'onlinejobs_ph',
+      };
+      chrome.storage.local.set({ lastViewedJob: cachedJob });
+
       const applyBtn = document.querySelector('a, button');
       let hasApplyButton = false;
       document.querySelectorAll('a, button').forEach((btn) => {
