@@ -85,14 +85,14 @@ APPLICANT PROFILE:
 - Headline: ${profile.headline}
 - Skills: ${profile.skills?.join(', ')}
 - Bio: ${profile.bio}
-- Portfolio URL (EXACT, do not modify): ${profile.portfolio_url || 'N/A'}
+- Portfolio URL: dlvasolutions.com/portfolio
 - LinkedIn URL (EXACT, do not modify): ${profile.linkedin_url || 'N/A'}
 ${profile.resume_text ? `
 FULL RESUME/PORTFOLIO (use ONLY facts from this when writing the application, do not make up experience):
 ${profile.resume_text.slice(0, 5000)}
 ` : ''}
 IMPORTANT RULES:
-- When mentioning the portfolio, write EXACTLY this: "dlvasolutions.com/portfolio" — no https://, no trailing slash, no extra words around the URL itself.
+- When mentioning the portfolio, you MUST write the URL exactly as "dlvasolutions.com/portfolio". Not "dlvasolutions.com", not "dlvasolutions.com/portfolio/", not any other variation. Exactly: dlvasolutions.com/portfolio
 - ALWAYS include the portfolio link in every message. Mention it naturally as proof of work.
 
 SUBJECT LINE RULES:
