@@ -43,24 +43,16 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - save profile (from app or extension)
+// POST - save profile (from app or extension). Requires a valid bearer token;
+// the profile is always keyed to the authenticated user, never a body-supplied
+// user_id (which previously let anyone overwrite any user's profile).
 export async function POST(req: NextRequest) {
-  // Try auth header first (extension), fall back to no-auth (same-origin app)
-  const authHeader = req.headers.get('authorization');
-  let userId: string | null = null;
-
-  if (authHeader?.startsWith('Bearer ')) {
-    const auth = await verifyExtensionAuth(req);
-    if (auth instanceof NextResponse) return auth;
-    userId = auth.userId;
-  }
+  const auth = await verifyExtensionAuth(req);
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
 
   try {
     const body = await req.json();
-
-    // If no userId from auth, try to get from body (app sends it)
-    if (!userId) userId = body.user_id || null;
-    if (!userId) return NextResponse.json({ error: 'No user ID' }, { status: 400 });
 
     const supabase = getServiceClient();
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
+import { authedFetch } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { User, Save, Check, Plus, X, Upload, Loader2, FileText, Globe } from 'lucide-react';
 
@@ -24,7 +25,7 @@ export default function ProfileSettings() {
   async function handleSave() {
     saveProfile(profile);
     try {
-      await fetch('/api/extension/profile', {
+      await authedFetch('/api/extension/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...profile, user_id: user?.id }),
@@ -47,7 +48,7 @@ export default function ProfileSettings() {
       const formData = new FormData();
       formData.append('resume', file);
 
-      const res = await fetch('/api/parse-resume', {
+      const res = await authedFetch('/api/parse-resume', {
         method: 'POST',
         body: formData,
       });
@@ -91,7 +92,7 @@ export default function ProfileSettings() {
     setImportSuccess('');
 
     try {
-      const res = await fetch('/api/parse-resume', {
+      const res = await authedFetch('/api/parse-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: importUrl.trim() }),

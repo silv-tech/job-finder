@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { WRITING_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
+import { requireAuth } from '@/lib/auth-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,9 @@ function getClient() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   const client = getClient();
   if (!client) {
     return NextResponse.json(

@@ -36,26 +36,33 @@ export async function GET(req: NextRequest) {
   let totalSent = 0;
 
   for (const alert of alerts) {
-    const query = alert.keywords.join(' ');
-    const jobs = await searchJobs(query, 1, false);
+    // Never let one malformed or failing alert abort the whole run.
+    try {
+      const query = Array.isArray(alert.keywords) ? alert.keywords.join(' ') : '';
+      if (!query.trim() || !alert.email) continue;
 
-    // Filter to jobs posted since last alert
-    const newJobs = alert.last_sent_at
-      ? jobs.filter((j) => new Date(j.posted_at) > new Date(alert.last_sent_at))
-      : jobs.slice(0, 10);
+      const jobs = await searchJobs(query, 1, false);
 
-    if (newJobs.length > 0) {
-      await sendAlertEmail(
-        alert.email,
-        newJobs.map((j) => ({ title: j.title, company: j.company, apply_url: j.apply_url }))
-      );
+      // Filter to jobs posted since last alert
+      const newJobs = alert.last_sent_at
+        ? jobs.filter((j) => new Date(j.posted_at) > new Date(alert.last_sent_at))
+        : jobs.slice(0, 10);
 
-      await supabase
-        .from('alerts')
-        .update({ last_sent_at: new Date().toISOString() })
-        .eq('id', alert.id);
+      if (newJobs.length > 0) {
+        await sendAlertEmail(
+          alert.email,
+          newJobs.map((j) => ({ title: j.title, company: j.company, apply_url: j.apply_url }))
+        );
 
-      totalSent++;
+        await supabase
+          .from('alerts')
+          .update({ last_sent_at: new Date().toISOString() })
+          .eq('id', alert.id);
+
+        totalSent++;
+      }
+    } catch (err) {
+      console.error('Alert failed:', alert.id, err);
     }
   }
 

@@ -1,8 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { AI_MODEL } from '@/lib/ai-config';
+import { requireAuth } from '@/lib/auth-api';
 
 export const dynamic = 'force-dynamic';
+
+// Block server-side requests to localhost / private / link-local hosts so this
+// URL-import endpoint can't be used to reach internal services or cloud
+// metadata (SSRF). Not bulletproof against DNS rebinding, but combined with the
+// auth gate it closes the practical vectors.
+function isSafeImportUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.internal') ||
+    host === 'metadata.google.internal' ||
+    host === '0.0.0.0' ||
+    host === '::1'
+  ) {
+    return false;
+  }
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = +m[1];
+    const b = +m[2];
+    if (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 let anthropic: Anthropic | null = null;
 
@@ -16,6 +59,9 @@ function getClient() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   const client = getClient();
 
   try {
@@ -30,9 +76,13 @@ export async function POST(req: NextRequest) {
       if (!body.url) {
         return NextResponse.json({ error: 'No URL provided' }, { status: 400 });
       }
+      if (!isSafeImportUrl(body.url)) {
+        return NextResponse.json({ error: 'That URL is not allowed' }, { status: 400 });
+      }
 
       try {
         const res = await fetch(body.url, {
+          redirect: 'error', // don't follow redirects into blocked hosts
           headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobFinder/1.0)' },
           signal: AbortSignal.timeout(15000),
         });

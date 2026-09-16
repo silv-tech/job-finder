@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth-api';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const supabase = getServiceClient();
     const { data, error } = await supabase
       .from('saved_jobs')
       .select('*')
+      .eq('user_id', auth.userId)
       .order('created_at', { ascending: false });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -19,6 +24,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const supabase = getServiceClient();
     const body = await req.json();
@@ -27,6 +35,7 @@ export async function POST(req: NextRequest) {
       .from('saved_jobs')
       .upsert(
         {
+          user_id: auth.userId,
           source_id: body.source_id,
           source: body.source,
           title: body.title,
@@ -45,7 +54,7 @@ export async function POST(req: NextRequest) {
           status: body.status || 'interested',
           notes: body.notes,
         },
-        { onConflict: 'source_id' }
+        { onConflict: 'user_id,source_id' }
       )
       .select()
       .single();
@@ -58,14 +67,21 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const supabase = getServiceClient();
     const { id, ...updates } = await req.json();
+
+    // Never let the caller move a row to another user.
+    delete updates.user_id;
 
     const { data, error } = await supabase
       .from('saved_jobs')
       .update(updates)
       .eq('id', id)
+      .eq('user_id', auth.userId)
       .select()
       .single();
 
@@ -77,11 +93,18 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const supabase = getServiceClient();
     const { id } = await req.json();
 
-    const { error } = await supabase.from('saved_jobs').delete().eq('id', id);
+    const { error } = await supabase
+      .from('saved_jobs')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', auth.userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch {
