@@ -11,6 +11,9 @@ export interface UserProfile {
   bio: string;
   message_template: string;
   resume_text?: string;
+  // Real messages the user has written, used to ground applications in their
+  // actual voice so they read as human rather than AI-generated.
+  writing_samples?: string;
 }
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -67,10 +70,11 @@ Let me know if you'd like to chat, I'm happy to jump on a call anytime.
 {{name}}
 {{email}}
 {{phone}}`,
+  writing_samples: '',
 };
 
 const STORAGE_KEY = 'job_finder_profile';
-const PROFILE_VERSION = '4'; // bump this to reset profile to new defaults
+const PROFILE_VERSION = '5'; // bump this to reset profile to new defaults
 
 export function getProfile(): UserProfile {
   if (typeof window === 'undefined') return DEFAULT_PROFILE;
@@ -93,6 +97,9 @@ export function getProfile(): UserProfile {
           linkedin_url: existing.linkedin_url || DEFAULT_PROFILE.linkedin_url,
           upwork_url: existing.upwork_url || DEFAULT_PROFILE.upwork_url,
           resume_url: existing.resume_url || DEFAULT_PROFILE.resume_url,
+          // Preserve imported/typed content across version bumps.
+          resume_text: existing.resume_text || DEFAULT_PROFILE.resume_text,
+          writing_samples: existing.writing_samples || DEFAULT_PROFILE.writing_samples,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
         return merged;
@@ -143,7 +150,7 @@ export function generateMessage(
     ? `Resume: ${profile.resume_url}`
     : '';
 
-  let body = profile.message_template
+  const body = profile.message_template
     .replace(/\{\{hiring_manager\}\}/g, 'Hiring Manager')
     .replace(/\{\{job_title\}\}/g, job.title)
     .replace(/\{\{company\}\}/g, job.company)

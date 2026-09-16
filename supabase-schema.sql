@@ -58,9 +58,15 @@ CREATE TABLE IF NOT EXISTS profiles (
   headline TEXT DEFAULT '',
   skills TEXT[] DEFAULT '{}',
   bio TEXT DEFAULT '',
+  resume_text TEXT DEFAULT '',       -- full imported resume/portfolio text
+  writing_samples TEXT DEFAULT '',   -- user's real messages, for voice grounding
   updated_at TIMESTAMPTZ DEFAULT now(),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- If the profiles table already exists in your live database, run these instead:
+--   ALTER TABLE profiles ADD COLUMN IF NOT EXISTS resume_text TEXT DEFAULT '';
+--   ALTER TABLE profiles ADD COLUMN IF NOT EXISTS writing_samples TEXT DEFAULT '';
 
 -- Indexes
 CREATE INDEX idx_saved_jobs_status ON saved_jobs(status);

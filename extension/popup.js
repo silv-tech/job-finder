@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('auto-apply-keywords').value = config?.autoApplyKeywords || '';
     document.getElementById('scan-interval-visible').value = config?.scanInterval || 5;
     document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
-    document.getElementById('min-score').value = config?.minApplyScore || 40;
+    document.getElementById('min-score').value = config?.minApplyScore || 55;
 
     // Show/hide auto-apply config + countdown timer
     if (config?.autoApply) {

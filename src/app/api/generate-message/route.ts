@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { AI_MODEL } from '@/lib/ai-config';
+import { WRITING_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,96 +27,88 @@ export async function POST(req: NextRequest) {
   try {
     const { job, profile } = await req.json();
 
+    const voiceBlock = profile.writing_samples?.trim()
+      ? `THE APPLICANT'S REAL WRITING VOICE (match this exactly):
+Below are real messages the applicant has written. Copy this person's rhythm, sentence length, word choices, and level of formality. Write so it sounds like the SAME person wrote it.
+"""
+${profile.writing_samples.slice(0, 4000)}
+"""`
+      : `THE APPLICANT'S VOICE:
+No writing samples provided. Infer a natural, plain-spoken voice from the bio and resume. Write like a real person typing a message, not a polished template.`;
+
     const message = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 1024,
+      model: WRITING_MODEL,
+      max_tokens: 4096,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium' },
       messages: [
         {
           role: 'user',
-          content: `You are writing a job application message on behalf of ${profile.name}. Write a concise, natural, and personalized application email.
+          content: `You are writing a job application message AS ${profile.name}, in their own voice. Everything must be truthful and grounded in the real background below. Never invent experience.
 
-APPLICANT PROFILE:
+${voiceBlock}
+
+APPLICANT FACTS:
 - Name: ${profile.name}
 - Headline: ${profile.headline}
 - Skills: ${profile.skills?.join(', ')}
 - Bio: ${profile.bio}
-- Portfolio URL (EXACT, do not modify): ${profile.portfolio_url || 'N/A'}
-- LinkedIn URL (EXACT, do not modify): ${profile.linkedin_url || 'N/A'}
+- Portfolio URL (copy EXACTLY, without adding or dropping anything): ${profile.portfolio_url || 'N/A'}
+- LinkedIn URL (copy EXACTLY): ${profile.linkedin_url || 'N/A'}
 ${profile.resume_text ? `
-FULL RESUME/PORTFOLIO (use ONLY facts from this when writing, do not make up experience):
-${profile.resume_text.slice(0, 5000)}
+FULL RESUME / PORTFOLIO (use ONLY real facts from here, never make up experience):
+"""
+${profile.resume_text.slice(0, 6000)}
+"""
 ` : ''}
-IMPORTANT RULES:
-- When mentioning the portfolio, use the EXACT URL provided above (without https://). Never modify or guess URLs.
-- ALWAYS include the portfolio link in every message as proof of work.
-
-SUBJECT LINE RULES:
-- Write a bold, confident, catchy subject line. Think: "HIRE ME NOW!", "What are you waiting for?", "Here I am", "This is it!", "This is me", "Ready when you are"
-- Be creative, mix it up each time
-- If the job description requires a specific word in the subject (hidden instruction), put that word at the END. Example: "HIRE ME NOW! ORANGE"
-- Never use boring subjects like "Application for [Job Title]"
-
-JOB DETAILS:
+THE JOB:
 - Title: ${job.title}
 - Company: ${job.company}
-- Description: ${job.description?.slice(0, 6000) || 'No description available'}
+- Description:
+"""
+${job.description?.slice(0, 6000) || 'No description available'}
+"""
 - Required Skills: ${job.skills?.join(', ') || 'Not specified'}
 
-CRITICAL — READ THE FULL JOB DESCRIPTION CAREFULLY:
+=== HOW TO WRITE THIS ===
 
-1. HIDDEN INSTRUCTIONS: Scan for hidden tests like "Put 'Orange' in your subject line", "Include the code XYZ123", etc. Follow them EXACTLY.
+1. READ THE WHOLE POST. Follow any HIDDEN INSTRUCTIONS exactly (e.g. "put ORANGE in your subject"). Find and answer EVERY embedded question the post asks ("tell us about...", "why do you want...", etc.) using real experience. Answering all of them is what separates a real applicant from spam.
 
-2. APPLICATION REQUIREMENTS (VERY IMPORTANT): Many job posts end with specific questions like "When applying, please explain...", "Tell us about...", "Please briefly describe...". You MUST find and answer ALL of these. If the post asks 5 questions, answer all 5 using the applicant's real experience. Missing these makes the application look like spam.
+2. GROUND IT IN SPECIFICS. Name 1 to 2 concrete, true details from the resume that match what this job needs. Reference something real from the post so it is clear you read it. Include the portfolio link naturally as proof of work, copied exactly.
 
-3. WRITING STYLE (CRITICAL):
-- ABSOLUTELY NEVER use the em dash character (the long dash). Not in the subject, not in the body, nowhere. This is the #1 rule.
-- Write at a CASUAL, SIMPLE English level. Think of how a Filipino VA who speaks good English but not fancy English would write. Correct grammar is fine, but vocabulary should be basic and everyday.
-- Use SHORT, simple words. Say "use" not "utilize", "help" not "facilitate", "make" not "implement", "built" not "architected".
-- Keep sentences short and straightforward.
-- Do NOT sound smart, polished, or corporate. No buzzwords.
-- Do NOT use: "I'm excited to", "I believe I would be", "leverage", "streamline", "scalable", "dynamic", "thriving", "cutting-edge", "spearheaded", "orchestrated", "facilitated", "comprehensive", "robust".
-- Sound like a real, down-to-earth person. Warm and sincere but simple.
-- Reference specific things from the job description.
-- Sign off with first name only.
-- If the job asks specific questions, the message can be longer. Otherwise keep it under 150 words.
+3. SOUND HUMAN, NOT AI:
+   - NEVER use the em dash (—) or en dash (–); use a comma or period. This is the #1 tell.
+   - Do not open with "I came across", "I saw your posting", "I'm excited to", "I'd love the opportunity", "I hope this finds you", "I am writing to apply".
+   - Banned: leverage, utilize, facilitate, streamline, scalable, dynamic, thriving, cutting-edge, spearheaded, orchestrated, comprehensive, robust, passionate about, "not only... but also", "furthermore", "moreover".
+   - No neat three-item lists, no rhetorical questions, no "I look forward to the opportunity to contribute". Short, plain words and short sentences.
 
-INSTRUCTIONS:
-1. Write a simple subject line (include any hidden test word if required)
-2. Write the email body that:
-   - Opens naturally, references something specific about this job
-   - Answers ALL application requirements/questions from the job post
-   - Highlights relevant skills/experiences that match this role
-   - Mentions concrete achievements but only relevant ones
-   - Includes portfolio/LinkedIn links naturally
-   - Ends with a simple call to action
+4. SUBJECT: natural and human, specific to the role. Not "Application for [Title]", not gimmicky spam. Put any required hidden word at the very end.
 
-Respond in this exact JSON format:
+5. VARY the opening and structure so it never reads like a template. If the post asks several questions the message can be longer; otherwise keep it under about 150 words. Sign off with the first name only.
+
+6. SELF-EDIT: reread as a busy hiring manager and as a spam filter. Remove anything that sounds like AI, any banned words, any unanswered question. Then produce the final version.
+
+Return ONLY this JSON, nothing else:
 {"subject": "your subject line", "body": "your email body"}`,
         },
       ],
     });
 
-    const content = message.content?.[0];
-    if (!content || content.type !== 'text') {
+    const text = extractText(message);
+    if (!text) {
       return NextResponse.json({ error: 'Unexpected response format' }, { status: 500 });
     }
 
-    // Parse the JSON response, handling potential markdown code blocks
-    let text = content.text.trim();
-    if (text.startsWith('```')) {
-      text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const parsed = parseJsonResponse<{ subject?: string; body?: string }>(text);
+    if (!parsed) {
+      return NextResponse.json({ error: 'Could not parse message' }, { status: 500 });
     }
 
-    const parsed = JSON.parse(text);
-    // Strip em dashes
-    const subject = (parsed.subject || '').replace(/—/g, ',');
-    const body = (parsed.body || '').replace(/—/g, ',');
+    const subject = stripAiTells(parsed.subject || '');
+    const body = stripAiTells(parsed.body || '');
     return NextResponse.json({ subject, body });
   } catch (err) {
     console.error('AI generation error:', err);
-    return NextResponse.json(
-      { error: 'Failed to generate message. ' + String(err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate message.' }, { status: 500 });
   }
 }

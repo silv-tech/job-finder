@@ -321,6 +321,26 @@ export default function ProfileSettings() {
         />
       </div>
 
+      {/* Writing Voice */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200">
+        <label className="block text-sm font-medium text-slate-700 mb-1">Your Writing Voice</label>
+        <p className="text-xs text-slate-400 mb-3">
+          Paste 1 to 3 real messages you have actually written (past applications, emails, DMs). The AI copies your rhythm and word choice so your applications read like you wrote them, not like AI. This is the single biggest thing that makes them sound human. Leave blank to skip.
+        </p>
+        <textarea
+          value={profile.writing_samples || ''}
+          onChange={(e) => update('writing_samples', e.target.value)}
+          rows={10}
+          placeholder={"Paste a real message or two here, separated by a blank line.\n\nExample:\nHey, saw you need someone to build out your onboarding flow. I did exactly this for a SaaS last year, took it from a 3-step signup to a guided setup and their activation went way up. Happy to show you the before/after if useful."}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-slate-200 focus:border-slate-300 outline-none resize-y leading-relaxed"
+        />
+        {profile.writing_samples && (
+          <p className="text-xs text-slate-400 mt-2">
+            {profile.writing_samples.length.toLocaleString()} characters.
+          </p>
+        )}
+      </div>
+
       {/* Skills */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200">
         <label className="block text-sm font-medium text-slate-700 mb-3">Your Skills</label>

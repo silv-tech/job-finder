@@ -135,7 +135,7 @@ async function handleAutoApplyCycle(tabId) {
     const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs, profile: config?.profile || {} }),
+      body: JSON.stringify({ jobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
     if (!matchRes.ok) return;
@@ -150,7 +150,7 @@ async function handleAutoApplyCycle(tabId) {
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const appliedSet = new Set(appliedUrls);
     const maxApplies = config?.maxAppliesPerCycle || 5;
-    const minScore = config?.minApplyScore || 40;
+    const minScore = config?.minApplyScore || 55;
     const toApply = recommended
       .filter(j => !appliedSet.has(j.apply_url) && (j.score || 0) >= minScore)
       .slice(0, maxApplies);
@@ -354,7 +354,7 @@ async function handleMatchJobs(jobs) {
     const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile }),
+      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore || 55 }),
     });
 
     if (res.status === 401) {
@@ -581,7 +581,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {} }),
+      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
     if (!res.ok) {

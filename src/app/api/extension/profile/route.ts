@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
         skills: data.skills || [],
         bio: data.bio || '',
         resume_text: data.resume_text || '',
+        writing_samples: data.writing_samples || '',
       },
     });
   } catch {
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
         skills: body.skills || [],
         bio: body.bio || '',
         resume_text: body.resume_text || '',
+        writing_samples: body.writing_samples || '',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
