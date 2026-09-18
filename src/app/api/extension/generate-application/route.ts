@@ -235,7 +235,8 @@ ${profile.phone || ''}`.trim());
         }
       }
     }
-    return NextResponse.json(parsed);
+    // engine tells the extension this backend reads writing_samples natively
+    return NextResponse.json({ ...parsed, engine: 'v2' });
   } catch (err) {
     console.error('Generate application error:', err);
     return NextResponse.json({ error: 'Failed to generate application' }, { status: 500 });
