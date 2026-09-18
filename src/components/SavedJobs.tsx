@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Job, SavedJob } from '@/lib/types';
+import { authedFetch } from '@/lib/api-client';
 import { Bookmark, ExternalLink, Mail, ChevronDown, Trash2, Loader2 } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,7 +27,7 @@ export default function SavedJobs() {
 
   async function fetchJobs() {
     try {
-      const res = await fetch('/api/saved-jobs');
+      const res = await authedFetch('/api/saved-jobs');
       const data = await res.json();
       setJobs(data.jobs || []);
     } catch {
@@ -40,7 +41,7 @@ export default function SavedJobs() {
     // Optimistic update
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status: status as SavedJob['status'] } : j)));
     try {
-      await fetch('/api/saved-jobs', {
+      await authedFetch('/api/saved-jobs', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status }),
@@ -54,7 +55,7 @@ export default function SavedJobs() {
   async function handleRemove(id: string) {
     setJobs((prev) => prev.filter((j) => j.id !== id));
     try {
-      await fetch('/api/saved-jobs', {
+      await authedFetch('/api/saved-jobs', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),

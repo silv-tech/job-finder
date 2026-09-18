@@ -2,6 +2,7 @@
 
 import { Job } from '@/lib/types';
 import { getProfile, generateMessage } from '@/lib/profile';
+import { authedFetch } from '@/lib/api-client';
 import { X, Send, Copy, Check, ExternalLink, Mail, Sparkles, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -40,7 +41,7 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
     setAiLoading(true);
     try {
       const profile = getProfile();
-      const res = await fetch('/api/generate-message', {
+      const res = await authedFetch('/api/generate-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job, profile }),
@@ -85,7 +86,7 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
     setError('');
 
     try {
-      const res = await fetch('/api/message', {
+      const res = await authedFetch('/api/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: job.contact_email, subject, body }),

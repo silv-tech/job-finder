@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOutreachEmail } from '@/lib/email';
+import { requireAuth } from '@/lib/auth-api';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { to, subject, body } = await req.json();
 

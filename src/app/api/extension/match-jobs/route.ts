@@ -18,11 +18,16 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { jobs, profile } = await req.json() as { jobs: ScrapedJob[]; profile: { skills: string[]; headline: string; bio: string } };
+    const { jobs, profile, min_score } = await req.json() as { jobs: ScrapedJob[]; profile: { skills: string[]; headline: string; bio: string }; min_score?: number };
 
     if (!jobs || jobs.length === 0) {
       return NextResponse.json({ matches: [] });
     }
+
+    // Only recommend genuinely strong matches. Applying broadly to weak-fit
+    // jobs is the loudest automation signal and the fastest way to get an
+    // account flagged, so hold a higher bar by default.
+    const threshold = typeof min_score === 'number' ? min_score : 55;
 
     // Fast keyword matching for all job scanning
     const matches = jobs.map((job) => {
@@ -32,7 +37,7 @@ export async function POST(req: NextRequest) {
         return parts.some((part) => desc.includes(part));
       });
       const score = Math.min(100, Math.round((matchedSkills.length / Math.min(profile.skills?.length || 1, 5)) * 100));
-      const should_apply = score >= 40;
+      const should_apply = score >= threshold;
       return {
         ...job,
         score,

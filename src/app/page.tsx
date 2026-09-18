@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Job } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
+import { authedFetch } from '@/lib/api-client';
 import LoginPage from '@/app/login/page';
 import JobCard from '@/components/JobCard';
 import MessageModal from '@/components/MessageModal';
@@ -43,7 +44,7 @@ export default function Home() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    fetch('/api/saved-jobs')
+    authedFetch('/api/saved-jobs')
       .then((r) => r.json())
       .then((data) => {
         const saved = data.jobs || [];
@@ -156,7 +157,7 @@ export default function Home() {
   async function handleSaveJob(job: Job) {
     setSavedIds((prev) => new Set([...prev, job.id]));
     try {
-      await fetch('/api/saved-jobs', {
+      await authedFetch('/api/saved-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

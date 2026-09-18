@@ -41,3 +41,8 @@ export async function verifyExtensionAuth(
     return NextResponse.json({ error: 'Auth verification failed' }, { status: 500 });
   }
 }
+
+// Generic bearer-token auth for any route (web app or extension). Same check as
+// verifyExtensionAuth — validates the Supabase access token and returns the
+// user, or a 401 NextResponse.
+export const requireAuth = verifyExtensionAuth;

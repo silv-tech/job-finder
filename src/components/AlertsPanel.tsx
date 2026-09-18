@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Alert } from '@/lib/types';
+import { authedFetch } from '@/lib/api-client';
 import { Bell, Plus, Trash2, Loader2 } from 'lucide-react';
 
 export default function AlertsPanel() {
@@ -17,7 +18,7 @@ export default function AlertsPanel() {
 
   async function fetchAlerts() {
     try {
-      const res = await fetch('/api/alerts');
+      const res = await authedFetch('/api/alerts');
       const data = await res.json();
       setAlerts(data.alerts || []);
     } catch {
@@ -33,7 +34,7 @@ export default function AlertsPanel() {
 
     setSaving(true);
     try {
-      const res = await fetch('/api/alerts', {
+      const res = await authedFetch('/api/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -54,7 +55,7 @@ export default function AlertsPanel() {
 
   async function handleRemove(id: string) {
     try {
-      await fetch('/api/alerts', {
+      await authedFetch('/api/alerts', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),

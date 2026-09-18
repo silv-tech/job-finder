@@ -42,11 +42,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSupabase(client);
 
     // Get initial session
-    client.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      setLoading(false);
-    });
+    // .catch/.finally: a failed session fetch (network, corrupt storage) must
+    // not leave the app stuck on the loading spinner
+    client.auth.getSession()
+      .then(({ data: { session: s } }) => {
+        setSession(s);
+        setUser(s?.user ?? null);
+      })
+      .catch(() => {
+        setSession(null);
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
 
     // Listen for auth changes
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, s) => {

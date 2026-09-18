@@ -866,17 +866,23 @@ console.log('[JF] Content script loaded on:', window.location.href);
     if (applyAllBtn) {
       applyAllBtn.addEventListener('click', async () => {
         const recommended = matches.filter((m) => m.should_apply);
-        applyAllBtn.textContent = `Applying (0/${recommended.length})...`;
         applyAllBtn.disabled = true;
 
-        for (let i = 0; i < recommended.length; i++) {
-          applyAllBtn.textContent = `Applying (${i + 1}/${recommended.length})...`;
-          await navigateAndApply(recommended[i]);
-          await sleep(2000);
+        // Hand the whole list to the background worker. Navigating this tab
+        // per job would unload this script and stop the loop after job 1.
+        try {
+          const res = await chrome.runtime.sendMessage({ action: 'applyAllInBackground', jobs: recommended });
+          if (res?.busy) {
+            applyAllBtn.textContent = 'Already applying, try again shortly';
+            applyAllBtn.disabled = false;
+            return;
+          }
+          applyAllBtn.textContent = `Applying to ${recommended.length} jobs in the background...`;
+          applyAllBtn.classList.add('jf-applied');
+        } catch (err) {
+          applyAllBtn.textContent = `Error: ${err.message}`;
+          applyAllBtn.disabled = false;
         }
-
-        applyAllBtn.textContent = `Done! Applied to ${recommended.length} jobs`;
-        applyAllBtn.classList.add('jf-applied');
       });
     }
   }
@@ -1198,21 +1204,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
       return { jobs: jobs.length, matches: matches.length };
     } finally {
       isProcessing = false;
-    }
-  }
-
-  async function navigateAndApply(job) {
-    showApplyingOverlay(job);
-
-    try {
-      // Let the background script orchestrate the full flow
-      const result = await chrome.runtime.sendMessage({ action: 'navigateAndApply', job });
-
-      if (result?.error) {
-        updateApplyStatus(`Error: ${result.error}`);
-      }
-    } catch (err) {
-      updateApplyStatus(`Error: ${err.message}`);
     }
   }
 

@@ -135,7 +135,7 @@ async function handleAutoApplyCycle(tabId) {
     const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs, profile: config?.profile || {} }),
+      body: JSON.stringify({ jobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
     if (!matchRes.ok) return;
@@ -150,20 +150,54 @@ async function handleAutoApplyCycle(tabId) {
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const appliedSet = new Set(appliedUrls);
     const maxApplies = config?.maxAppliesPerCycle || 5;
-    const minScore = config?.minApplyScore || 40;
+    const minScore = config?.minApplyScore || 55;
     const toApply = recommended
       .filter(j => !appliedSet.has(j.apply_url) && (j.score || 0) >= minScore)
       .slice(0, maxApplies);
 
     if (toApply.length === 0) return;
 
-    // Step 4: Apply to max 5 recommended jobs using a hidden tab
-    const bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
-    let appliedCount = 0;
+    await applyToJobs(toApply);
+  } catch {
+    // Silent fail for background cycle
+  }
+}
 
-    for (const job of toApply) {
+// Guards against the alarm cycle and "Apply to All" running at the same time
+let applyRunning = false;
+
+async function markApplied(url) {
+  const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+  if (!appliedUrls.includes(url)) {
+    appliedUrls.push(url);
+    await chrome.storage.local.set({ appliedUrls });
+  }
+}
+
+async function unmarkApplied(url) {
+  const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+  await chrome.storage.local.set({ appliedUrls: appliedUrls.filter(u => u !== url) });
+}
+
+// Apply to each job in a hidden tab (fill + send). Each URL is persisted as
+// applied BEFORE sending, so a service-worker eviction mid-run can't cause a
+// double application; it's un-marked only on a clean, retryable failure.
+async function applyToJobs(jobs) {
+  if (applyRunning) return { busy: true, applied: 0 };
+  applyRunning = true;
+
+  let appliedCount = 0;
+  let bgTab;
+  try {
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    const alreadyApplied = new Set(appliedUrls);
+    const pending = jobs.filter(j => j.apply_url && !alreadyApplied.has(j.apply_url));
+    if (pending.length === 0) return { applied: 0 };
+
+    bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
+
+    for (const job of pending) {
       try {
-        // Navigate to job detail page
         await chrome.tabs.update(bgTab.id, { url: job.apply_url });
         await waitForTabLoad(bgTab.id);
         await sleep(2500);
@@ -180,8 +214,8 @@ async function handleAutoApplyCycle(tabId) {
         }
 
         if (clickResult?.already_applied) {
-          appliedSet.add(job.apply_url);
-          continue; // Skip, don't count
+          await markApplied(job.apply_url);
+          continue;
         }
 
         if (clickResult?.description) {
@@ -193,7 +227,9 @@ async function handleAutoApplyCycle(tabId) {
           await sleep(2500);
         }
 
-        // Fill and submit the form
+        // Point of no return: record before sending
+        await markApplied(job.apply_url);
+
         let fillResult;
         try {
           fillResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'autoFillAndSend', job });
@@ -201,23 +237,26 @@ async function handleAutoApplyCycle(tabId) {
           await sleep(2000);
           try {
             fillResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'autoFillAndSend', job });
-          } catch { continue; }
+          } catch {
+            // Unknown whether it sent; leave it marked rather than risk a duplicate
+            continue;
+          }
         }
 
         if (fillResult?.manual_required) {
-          // Notify user about this job needing manual action
           chrome.notifications.create({
             type: 'basic',
             title: 'Manual Action Needed',
             message: `"${job.title}" requires: ${(fillResult.requirements || ['manual steps']).join(', ')}`,
             iconUrl: 'icons/icon128.png',
           });
-          appliedSet.add(job.apply_url); // Don't retry this job
         } else if (fillResult?.success) {
           appliedCount++;
-          appliedSet.add(job.apply_url);
           await handleSaveJob(job);
           await logApplication(job);
+        } else {
+          // Content script reported a clean failure: allow a retry next time
+          await unmarkApplied(job.apply_url);
         }
 
         await sleep(3000);
@@ -225,22 +264,20 @@ async function handleAutoApplyCycle(tabId) {
         continue;
       }
     }
-
-    await chrome.storage.local.set({ appliedUrls: [...appliedSet] });
-    await chrome.tabs.remove(bgTab.id);
-
-    // Notify user
-    if (appliedCount > 0) {
-      chrome.notifications.create({
-        type: 'basic',
-        title: 'Auto-Apply Complete',
-        message: `Applied to ${appliedCount} job${appliedCount > 1 ? 's' : ''} automatically`,
-        iconUrl: 'icons/icon128.png',
-      });
-    }
-  } catch {
-    // Silent fail for background cycle
+  } finally {
+    applyRunning = false;
+    if (bgTab) { try { await chrome.tabs.remove(bgTab.id); } catch {} }
   }
+
+  if (appliedCount > 0) {
+    chrome.notifications.create({
+      type: 'basic',
+      title: 'Auto-Apply Complete',
+      message: `Applied to ${appliedCount} job${appliedCount > 1 ? 's' : ''} automatically`,
+      iconUrl: 'icons/icon128.png',
+    });
+  }
+  return { applied: appliedCount };
 }
 
 // Handle messages from content scripts and popup
@@ -334,6 +371,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'applyAllInBackground') {
+    // Runs in a hidden tab so the sender page can navigate or close without
+    // killing the loop. Respond immediately; completion comes as a notification.
+    if (applyRunning) {
+      sendResponse({ busy: true });
+      return false;
+    }
+    applyToJobs(message.jobs || []);
+    sendResponse({ started: true });
+    return false;
+  }
+
   if (message.action === 'navigateAndApply') {
     // Background orchestrates: navigate tab, wait for load, tell content script to apply
     handleNavigateAndApply(message.job, sender.tab.id).then(sendResponse);
@@ -354,7 +403,7 @@ async function handleMatchJobs(jobs) {
     const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile }),
+      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore || 55 }),
     });
 
     if (res.status === 401) {
@@ -581,7 +630,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {} }),
+      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
     if (!res.ok) {
