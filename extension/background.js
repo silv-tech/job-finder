@@ -429,13 +429,15 @@ async function handleGenerateApplication(job, formFields) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
+    const profile = await getFreshProfile(config);
+    const { backendV2 } = await chrome.storage.local.get('backendV2');
     const headers = await getAuthHeaders();
     const res = await fetch(`${apiUrl}/api/extension/generate-application`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         job,
-        profile: config?.profile || DEFAULT_CONFIG.profile,
+        profile: backendV2 ? withWritingSamples(profile, config) : withVoiceInBio(profile, config),
         form_fields: formFields,
       }),
     });
@@ -445,10 +447,140 @@ async function handleGenerateApplication(job, formFields) {
     }
 
     if (!res.ok) throw new Error(`API error: ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    if (data.engine === 'v2' && !backendV2) await chrome.storage.local.set({ backendV2: true });
+    return humanizeApplication(data);
   } catch (err) {
     return { error: err.message };
   }
+}
+
+// ---- Application quality helpers -----------------------------------------
+
+const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
+
+// The local profile only updates when "Sync Profile" is clicked, so it's often
+// blank or missing the resume. Refresh it from the app when stale so every
+// application is written from the real, full profile.
+async function getFreshProfile(config) {
+  const local = config?.profile || {};
+  const { profileSyncedAt = 0 } = await chrome.storage.local.get('profileSyncedAt');
+  if (local.name && Date.now() - profileSyncedAt < PROFILE_TTL_MS) return local;
+
+  try {
+    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    const res = await fetch(`${apiUrl}/api/extension/profile`, { headers: await getAuthHeaders() });
+    if (!res.ok) return local;
+    const { profile } = await res.json();
+    if (!profile) return local;
+
+    const merged = { ...local };
+    for (const [k, v] of Object.entries(profile)) {
+      const empty = v == null || v === '' || (Array.isArray(v) && v.length === 0);
+      if (!empty) merged[k] = v;
+    }
+    const { config: current } = await chrome.storage.local.get('config');
+    await chrome.storage.local.set({
+      config: { ...(current || DEFAULT_CONFIG), profile: merged },
+      profileSyncedAt: Date.now(),
+    });
+    return merged;
+  } catch {
+    return local;
+  }
+}
+
+function writingSamplesFor(profile, config) {
+  return (config?.writingSamples || profile.writing_samples || '').trim();
+}
+
+// Current backend: it reads writing_samples and has its own style rules.
+function withWritingSamples(profile, config) {
+  return { ...profile, writing_samples: writingSamplesFor(profile, config) };
+}
+
+// Older backend: it ignores writing_samples but always puts the bio into the
+// prompt, so carry the voice samples and style notes there.
+function withVoiceInBio(profile, config) {
+  const samples = writingSamplesFor(profile, config);
+  const notes = [
+    'Notes on how I write applications:',
+    '- Open with something specific from their post, not a greeting formula.',
+    '- Mention one concrete thing I built that matches what they need, with the result.',
+    '- Plain words, short sentences, no exclamation marks, no hype.',
+    '- Subject line: short and specific to the role, the way a real person writes it. Never "HIRE ME" style.',
+  ].join('\n');
+  const voice = samples
+    ? `\n\nReal messages I wrote. Match this voice, tone and sentence length, do not copy them:\n${samples.slice(0, 3000)}`
+    : '';
+  return { ...profile, bio: `${profile.bio || ''}\n\n${notes}${voice}`.trim() };
+}
+
+// Phrases that instantly read as AI or as a template. Removed whole-sentence.
+const CANNED_SENTENCES = [
+  /I hope (this|my) (message|email|note) finds you well\.?/gi,
+  /I am writing to (express|apply)[^.!?]*[.!?]/gi,
+  /I('m| am) (so |very |really )?(excited|thrilled|eager) (to|about)[^.!?]*[.!?]/gi,
+  /Thank you (so much )?for (your )?(time and )?consideration[.!]?/gi,
+  /I look forward to (hearing from you|the opportunity)[^.!?]*[.!?]/gi,
+];
+
+// Corporate/AI vocabulary -> plain words
+const PLAIN_WORDS = [
+  [/\butiliz(e|ed|ing)\b/gi, (m, s) => ({ e: 'use', ed: 'used', ing: 'using' })[s.toLowerCase()]],
+  [/\bleverag(e|ed|ing)\b/gi, (m, s) => ({ e: 'use', ed: 'used', ing: 'using' })[s.toLowerCase()]],
+  [/\bfacilitat(e|ed|ing)\b/gi, (m, s) => ({ e: 'help with', ed: 'helped with', ing: 'helping with' })[s.toLowerCase()]],
+  [/\bspearhead(ed|ing)?\b/gi, (m, s) => (s ? ({ ed: 'led', ing: 'leading' })[s.toLowerCase()] : 'lead')],
+  [/\borchestrat(e|ed|ing)\b/gi, (m, s) => ({ e: 'run', ed: 'ran', ing: 'running' })[s.toLowerCase()]],
+  [/\bseamless(ly)?\b/gi, (m, s) => (s ? 'smoothly' : 'smooth')],
+  [/\bpassionate about\b/gi, () => 'into'],
+];
+
+function humanizeText(text, { keepSentences = false } = {}) {
+  if (typeof text !== 'string' || !text) return text;
+  let t = text
+    .replace(/\s*[—–]\s*/g, ', ')   // em/en dash
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...');
+  if (!keepSentences) for (const re of CANNED_SENTENCES) t = t.replace(re, '');
+  for (const [re, fn] of PLAIN_WORDS) {
+    t = t.replace(re, (m, s) => {
+      const out = fn(m, s || '');
+      return m[0] === m[0].toUpperCase() ? out[0].toUpperCase() + out.slice(1) : out;
+    });
+  }
+  if (!keepSentences) t = t.replace(/!+/g, '.');
+  return t
+    .replace(/,\s*,/g, ',')
+    .replace(/ {2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s*\n/, '')
+    .trim();
+}
+
+// Final pass on whatever the backend returns. The subject keeps its words
+// untouched (it may carry a required test word from the job post); only
+// punctuation there is cleaned.
+function humanizeApplication(app) {
+  if (!app || app.error || app.manual_required) return app;
+  const out = { ...app };
+  if (out.subject) {
+    out.subject = out.subject
+      .replace(/\s*[—–]\s*/g, ', ')
+      .replace(/!{2,}/g, '!')
+      .trim();
+  }
+  // A hidden test instruction may require exact wording; never drop sentences then
+  const opts = { keepSentences: !!out.hidden_instructions_found };
+  if (out.cover_letter) out.cover_letter = humanizeText(out.cover_letter, opts);
+  if (out.fields) {
+    out.fields = Object.fromEntries(
+      Object.entries(out.fields).map(([k, v]) => [k, humanizeText(v, opts)])
+    );
+  }
+  return out;
 }
 
 async function handleSaveJob(job) {

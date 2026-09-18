@@ -865,8 +865,16 @@ console.log('[JF] Content script loaded on:', window.location.href);
     const applyAllBtn = overlay.querySelector('#jf-apply-all');
     if (applyAllBtn) {
       applyAllBtn.addEventListener('click', async () => {
-        const recommended = matches.filter((m) => m.should_apply);
         applyAllBtn.disabled = true;
+        // Same bar as scheduled auto-apply: only send to jobs that clear the min score
+        const config = await chrome.runtime.sendMessage({ action: 'getConfig' }).catch(() => null);
+        const minScore = config?.minApplyScore || 55;
+        const recommended = matches.filter((m) => m.should_apply && (m.score || 0) >= minScore);
+        if (recommended.length === 0) {
+          applyAllBtn.textContent = `No jobs at ${minScore}%+ match`;
+          applyAllBtn.disabled = false;
+          return;
+        }
 
         // Hand the whole list to the background worker. Navigating this tab
         // per job would unload this script and stop the loop after job 1.

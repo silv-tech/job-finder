@@ -189,6 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval-visible').value = config?.scanInterval || 5;
     document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
     document.getElementById('min-score').value = config?.minApplyScore || 55;
+    document.getElementById('writing-samples').value = config?.writingSamples || '';
 
     // Show/hide auto-apply config + countdown timer
     if (config?.autoApply) {
@@ -230,6 +231,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings(config));
     document.getElementById('max-applies').addEventListener('change', () => saveSettings(config));
     document.getElementById('min-score').addEventListener('change', () => saveSettings(config));
+    document.getElementById('writing-samples').addEventListener('change', () => saveSettings(config));
 
     function saveSettings(baseConfig) {
       const scanInterval = Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval-visible').value) || 60));
@@ -241,7 +243,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval,
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
-        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 40)),
+        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 55)),
+        writingSamples: document.getElementById('writing-samples').value.trim().slice(0, 6000),
       };
       // Update the hidden scan-interval too
       document.getElementById('scan-interval').value = scanInterval;
@@ -425,6 +428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const { config: currentConfig } = await chrome.storage.local.get('config');
             const updatedConfig = { ...currentConfig, profile: data.profile };
             await chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
+            await chrome.storage.local.set({ profileSyncedAt: Date.now() });
             btn.textContent = 'Synced!';
             setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
           } else {
