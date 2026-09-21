@@ -94,3 +94,12 @@ export const ROLE_PLAYBOOKS: Record<RoleKey, string> = {
 - Name the specific tools from the post the applicant has used.
 - Short, tidy, and precise. The message itself should look organized.`,
 };
+
+// Which resume to link for each kind of job. The operations version leads with
+// team leadership, client and admin work; the main one leads with building.
+const MAIN_RESUME = 'https://dlvasolutions.com/resume.pdf';
+const OPERATIONS_RESUME = 'https://dlvasolutions.com/resume-operations.pdf';
+
+export function resumeUrlFor(role: RoleKey | null): string {
+  return role === 'management' || role === 'general_va' || role === 'admin' ? OPERATIONS_RESUME : MAIN_RESUME;
+}

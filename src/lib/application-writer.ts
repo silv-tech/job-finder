@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { WRITING_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
 import { wrapJobPost, JOB_POST_SAFETY_RULES, hasVerbatimCopy } from '@/lib/prompt-safety';
-import { ROLE_LABELS, ROLE_PLAYBOOKS, type RoleHighlights, type RoleKey } from '@/lib/roles';
+import { ROLE_LABELS, ROLE_PLAYBOOKS, resumeUrlFor, type RoleHighlights, type RoleKey } from '@/lib/roles';
 
 // One writer for both the extension's auto-fill and the web app's message box,
 // so every application gets the same role focus and human-voice checks.
@@ -201,6 +201,7 @@ APPLICANT FACTS:
 - Bio: ${p.bio || ''}
 - Portfolio URL (copy EXACTLY, character-for-character, never shorten or drop path segments): ${p.portfolio_url || 'N/A'}
 - LinkedIn URL (copy EXACTLY): ${p.linkedin_url || 'N/A'}
+- Resume URL for this kind of job (copy EXACTLY): ${resumeUrlFor(opts.role)}
 
 ${resumeBlock}
 
@@ -227,7 +228,8 @@ ${fieldsBlock}
 
 2. MAKE IT ABOUT THEIR PROBLEM. The first two sentences should show you understood what this employer needs and that the applicant has done exactly that before, with one real, specific fact. Reference something concrete from the post so it's obvious it was read. Don't restate the job description back at them.
 
-3. GROUND IT IN SPECIFICS. Use 1 to 3 real details from the proof points or resume that match this post. Specific beats generic every time. Include the portfolio link naturally, copied exactly.
+3. GROUND IT IN SPECIFICS. Use 1 to 3 real details from the proof points or resume that match this post. Specific beats generic every time. Include the portfolio link and the resume link naturally (once each, near the end), copied exactly.
+   - Don't embellish real facts. Use them as stated and don't add details the sources don't give: no "before" situations ("sales were stuck"), no extra conditions ("without adding headcount", "in 3 months"), no invented methods, numbers, team structures or anecdotes. Explaining how the applicant would approach THIS employer's problem is fine; describing past work in more detail than the sources give is not. Never claim a past employer had the same problem as this one ("the situation I stepped into", "things were inconsistent there too", "the mess I fixed") unless the sources say so; just state what the applicant did and the result.
    - Only claim tools, skills and experience that appear in the profile, resume or proof points. If the post names a tool the applicant hasn't used, don't say they have; mention the closest real experience instead.
    - Don't invent availability, working hours, rates or start dates. If the post asks about hours or time zone, state the applicant's location/time zone from the profile and that they're open to the schedule; don't promise specific hours unless the profile says so.
 
@@ -276,6 +278,7 @@ const AI_TELLS: [RegExp, string][] = [
   [/\bin today's\b/i, 'says "in today\'s..."'],
   [/\bhappy to (chat|walk|answer|hop|jump|discuss|share|talk)\b/i, 'closes with a stock "Happy to chat/walk through" line'],
   [/\blet me know if you('re| are) interested\b/i, 'closes with "let me know if you\'re interested"'],
+  [/\b(stepped into|walked into|inherited|when i (joined|started|took over))\b|\b(same|similar) (situation|problem|mess)\b|\bthe mess i\b|\bwithout adding headcount\b|\b(there|them) too\b/i, 'invents what a past job was like before the applicant arrived (not in their resume)'],
 ];
 
 export function findAiTells(text: string, subject = ''): string[] {
@@ -291,6 +294,15 @@ const NON_APPLICATION_FIELD = /\b(search|query|keywords?|filter|sort|newsletter|
 
 function applicationFields(fields: FormField[] = []): FormField[] {
   return fields.filter((f) => ![f.name, f.id, f.label].some((v) => v && NON_APPLICATION_FIELD.test(v.trim())));
+}
+
+// Make sure the message ends with the applicant's first name.
+function withSignOff(message: string, name?: string): string {
+  const first = (name || '').trim().split(/\s+/)[0];
+  if (!first || !message.trim()) return message;
+  const lastLine = message.trim().split('\n').pop()?.trim() || '';
+  if (lastLine.toLowerCase().includes(first.toLowerCase())) return message;
+  return `${message.trimEnd()}\n\n${first}`;
 }
 
 // --- Writing ------------------------------------------------------------------
@@ -369,7 +381,7 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
 
   return {
     subject: stripAiTells(draft.subject || ''),
-    cover_letter: stripAiTells(draft.cover_letter || ''),
+    cover_letter: withSignOff(stripAiTells(draft.cover_letter || ''), profile.name),
     fields,
     hidden_instructions_found: draft.hidden_instructions_found || null,
   };
