@@ -10,7 +10,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // Listen for messages from background/popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'scanJobs') {
-      checkAuthThen(() => scanAndMatch()).then(sendResponse);
+      checkAuthThen(() => scanAndMatch()).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'autoScan') {
@@ -18,20 +18,20 @@ console.log('[JF] Content script loaded on:', window.location.href);
       return true;
     }
     if (message.action === 'applyToJob') {
-      checkAuthThen(() => applyToJob(message.job, message.application)).then(sendResponse);
+      checkAuthThen(() => applyToJob(message.job, message.application)).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'clickApplyButton') {
-      handleClickApplyButton().then(sendResponse);
+      handleClickApplyButton().then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'fillApplyForm') {
-      handleFillApplyForm(message.job).then(sendResponse);
+      handleFillApplyForm(message.job).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'scanAllPages') {
       // This is now handled by background script navigating the tab
-      checkAuthThen(() => scanAllPagesViaNav(message.maxPages || 5)).then(sendResponse);
+      checkAuthThen(() => scanAllPagesViaNav(message.maxPages || 5)).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'scrapeAndReport') {
@@ -53,7 +53,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
       return true;
     }
     if (message.action === 'autoFillAndSend') {
-      handleAutoFillAndSend(message.job).then(sendResponse);
+      handleAutoFillAndSend(message.job).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'showScanProgress') {
@@ -592,7 +592,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
       // 1. Explicit <label for="...">
       if (input.id) {
-        const labelEl = document.querySelector(`label[for="${input.id}"]`);
+        const labelEl = document.querySelector(`label${attrSelector('for', input.id)}`);
         if (labelEl) label = labelEl.textContent?.trim();
       }
 
@@ -668,7 +668,12 @@ console.log('[JF] Content script loaded on:', window.location.href);
     // Smart fill: match fields by label keywords
     for (const field of fields) {
       const label = (field.label || field.name || field.placeholder || '').toLowerCase();
-      const el = document.querySelector(field.selector);
+      let el = null;
+      try {
+        el = document.querySelector(field.selector);
+      } catch {
+        // Bad selector: skip this field rather than abort the whole fill
+      }
       if (!el) continue;
 
       // Subject field
@@ -712,7 +717,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     if (!filled.includes('message') && application.cover_letter) {
       const textareas = document.querySelectorAll('textarea');
       for (const ta of textareas) {
-        const label = (ta.closest('label')?.textContent || document.querySelector(`label[for="${ta.id}"]`)?.textContent || '').toLowerCase();
+        const label = (ta.closest('label')?.textContent || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent || '').toLowerCase();
         if (!ta.value?.trim() && !label.includes('contact')) {
           setInputValue(ta, application.cover_letter);
           filled.push('message');
@@ -725,7 +730,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     if (!filled.includes('subject') && application.subject) {
       const inputs = document.querySelectorAll('input[type="text"]');
       for (const input of inputs) {
-        const label = (input.closest('label')?.textContent || document.querySelector(`label[for="${input.id}"]`)?.textContent || input.placeholder || '').toLowerCase();
+        const label = (input.closest('label')?.textContent || document.querySelector(`label${attrSelector('for', input.id)}`)?.textContent || input.placeholder || '').toLowerCase();
         if (label.includes('subject') && !input.value?.trim()) {
           setInputValue(input, application.subject);
           filled.push('subject');
@@ -753,16 +758,23 @@ console.log('[JF] Content script loaded on:', window.location.href);
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // [attr="value"] with quotes and backslashes escaped; safe for any value.
+  function attrSelector(attr, value) {
+    return `[${attr}="${String(value).replace(/["\\]/g, '\\$&')}"]`;
+  }
+
   function getUniqueSelector(el) {
-    if (el.id) return `#${el.id}`;
-    if (el.name) return `[name="${el.name}"]`;
+    // Quoted attribute selectors: ids/names like "1st-name" or "user.email"
+    // are invalid as raw #id selectors and would make querySelector throw.
+    if (el.id) return attrSelector('id', el.id);
+    if (el.name) return attrSelector('name', el.name);
 
     const path = [];
     let current = el;
     while (current && current !== document.body) {
       let selector = current.tagName.toLowerCase();
       if (current.className && typeof current.className === 'string') {
-        const classes = current.className.trim().split(/\s+/).slice(0, 2).join('.');
+        const classes = current.className.trim().split(/\s+/).slice(0, 2).map((c) => CSS.escape(c)).join('.');
         if (classes) selector += '.' + classes;
       }
       const parent = current.parentElement;
