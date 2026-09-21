@@ -43,7 +43,10 @@ No writing samples provided. Infer a natural, plain-spoken voice from the bio an
 
     const message = await client.messages.create({
       model: WRITING_MODEL,
-      max_tokens: 4096,
+      // Shared by thinking and the answer; the prompt asks for two self-edit
+      // passes, so 4096 could run out before the JSON was finished. Only
+      // tokens actually generated are billed.
+      max_tokens: 16000,
       thinking: { type: 'adaptive' },
       output_config: { effort: 'medium' },
       messages: [
@@ -98,6 +101,15 @@ Return ONLY this JSON, nothing else:
         },
       ],
     });
+
+    // A cut-off or declined answer would parse as garbage; say what happened.
+    if (message.stop_reason === 'max_tokens') {
+      console.warn('message generation hit max_tokens', message.usage);
+      return NextResponse.json({ error: 'The AI ran out of room before finishing. Please try again.' }, { status: 502 });
+    }
+    if (message.stop_reason === 'refusal') {
+      return NextResponse.json({ error: 'The AI declined to write this one. Try writing it yourself.' }, { status: 502 });
+    }
 
     const text = extractText(message);
     if (!text) {
