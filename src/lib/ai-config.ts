@@ -9,6 +9,10 @@ export const AI_MODEL = 'claude-haiku-4-5-20251001';
 // applications read like a real person wrote them.
 export const WRITING_MODEL = 'claude-sonnet-5';
 
+// Strictest model for the fact-check pass: it goes sentence by sentence and
+// must cite a real fact for every claim about the applicant's past.
+export const FACT_CHECK_MODEL = 'claude-opus-5';
+
 // Sonnet 5 runs adaptive thinking by default, so response.content[0] can be a
 // `thinking` block rather than the text. Always pull the text out by type
 // instead of assuming index 0 — assuming [0] silently breaks on Sonnet 5.
