@@ -197,45 +197,74 @@ async function searchUpwork(query: string): Promise<Job[]> {
 }
 
 // --- Himalayas API (free remote jobs) ---
-async function searchHimalayas(query: string): Promise<Job[]> {
+// The plain /jobs/api endpoint ignores `q`, so use /jobs/api/search. It returns
+// ~10 jobs per page when sorted by recent, so fetch a few pages in parallel.
+async function fetchHimalayasPage(query: string, page: number): Promise<Record<string, unknown>[]> {
+  const params = new URLSearchParams({ q: query, sort: 'recent', page: String(page) });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const params = new URLSearchParams({
-      limit: '50',
-      q: query,
-    });
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`https://himalayas.app/jobs/api?${params}`, {
+    const res = await fetch(`https://himalayas.app/jobs/api/search?${params}`, {
       signal: controller.signal,
       next: { revalidate: 3600 },
     });
-    clearTimeout(timeout);
-
     if (!res.ok) {
       console.error('Himalayas error:', res.status);
       return [];
     }
-
     const data = await res.json();
-    return (data.jobs || []).map((item: Record<string, unknown>, index: number): Job => ({
-      id: `himalayas_${item.id || index}_${item.title || index}`,
-      title: (item.title as string) || '',
-      company: (item.companyName as string) || '',
-      company_logo: item.companyLogo as string | undefined,
-      location: (item.locationRestrictions as string) || 'Remote',
-      description: stripHtml((item.description as string) || ''),
-      short_description: stripHtml((item.excerpt as string) || (item.description as string) || '').slice(0, 300) + '...',
-      skills: [...((item.categories as string[]) || []), ...extractSkills((item.description as string) || '')],
-      job_type: (item.type as string) || 'full_time',
-      remote: true,
-      apply_url: (item.applicationLink as string) || (item.url as string) || '',
-      contact_email: extractEmail((item.description as string) || ''),
-      source: 'himalayas' as Job['source'],
-      source_id: String(item.id),
-      posted_at: (item.pubDate as string) || new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    }));
+    return data.jobs || [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// pubDate is Unix seconds (not ms). Returns null when missing or invalid.
+function himalayasDate(value: unknown): string | null {
+  const n = Number(value);
+  if (!n || !Number.isFinite(n)) return null;
+  const d = new Date(n < 1e12 ? n * 1000 : n);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+async function searchHimalayas(query: string): Promise<Job[]> {
+  try {
+    const pages = await Promise.all([1, 2, 3].map((p) => fetchHimalayasPage(query, p).catch(() => [])));
+    const seen = new Set<string>();
+    const jobs: Job[] = [];
+    for (const item of pages.flat()) {
+      // There is no `id` field; guid is the job's unique URL.
+      const guid = (item.guid as string) || (item.applicationLink as string) || '';
+      if (!guid || seen.has(guid)) continue;
+      seen.add(guid);
+      const locations = item.locationRestrictions;
+      const location = Array.isArray(locations)
+        ? locations.length === 0
+          ? 'Remote (worldwide)'
+          : locations.length > 3
+            ? `Remote (${locations.length} countries)`
+            : `Remote (${locations.join(', ')})`
+        : (locations as string) || 'Remote';
+      jobs.push({
+        id: `himalayas_${guid}`,
+        title: (item.title as string) || '',
+        company: (item.companyName as string) || '',
+        company_logo: item.companyLogo as string | undefined,
+        location,
+        description: stripHtml((item.description as string) || ''),
+        short_description: stripHtml((item.excerpt as string) || (item.description as string) || '').slice(0, 300) + '...',
+        skills: [...((item.categories as string[]) || []), ...extractSkills((item.description as string) || '')],
+        job_type: (item.employmentType as string) || (item.type as string) || 'full_time',
+        remote: true,
+        apply_url: (item.applicationLink as string) || guid,
+        contact_email: extractEmail((item.description as string) || ''),
+        source: 'himalayas' as Job['source'],
+        source_id: guid,
+        posted_at: himalayasDate(item.pubDate) || new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      });
+    }
+    return jobs;
   } catch (err) {
     console.error('Himalayas fetch failed:', err);
     return [];
