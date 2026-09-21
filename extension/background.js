@@ -92,11 +92,16 @@ async function getAuthHeaders() {
 // fetch() to our API with auth. On a 401 it force-refreshes the token and
 // retries once, so an expired session never silently stops auto-apply.
 async function apiFetch(url, init = {}) {
-  let res = await fetch(url, { ...init, headers: await getAuthHeaders() });
-  if (res.status === 401 && (await refreshTokenIfNeeded(true)) === 'ok') {
-    res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+  const release = keepAwake(); // AI calls can take longer than Chrome's idle limit
+  try {
+    let res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+    if (res.status === 401 && (await refreshTokenIfNeeded(true)) === 'ok') {
+      res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+    }
+    return res;
+  } finally {
+    release();
   }
-  return res;
 }
 
 // Merge changed settings into the latest stored config. Callers send only the
@@ -149,6 +154,8 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Also check whenever the service worker wakes up
 ensureAlarms();
+// A fresh worker means any saved run belongs to a worker Chrome shut down
+recoverInterruptedRun();
 
 // Handle periodic tasks
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -256,6 +263,53 @@ async function unmarkApplied(url) {
 // Apply to each job in a hidden tab (fill + send). Each URL is persisted as
 // applied BEFORE sending, so a service-worker eviction mid-run can't cause a
 // double application; it's un-marked only on a clean, retryable failure.
+// Chrome stops an idle MV3 service worker after ~30s, and waiting on a slow
+// fetch (the AI writing step) counts as idle. Any extension API call resets
+// the timer, so ping one every 20s while long work is running.
+let keepAliveUsers = 0;
+let keepAliveTimer = null;
+function keepAwake() {
+  keepAliveUsers++;
+  if (!keepAliveTimer) {
+    keepAliveTimer = setInterval(() => chrome.runtime.getPlatformInfo().catch(() => {}), 20000);
+  }
+  return () => {
+    keepAliveUsers--;
+    if (keepAliveUsers <= 0 && keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+      keepAliveUsers = 0;
+    }
+  };
+}
+
+// Progress of the current Apply-All run, saved so that if Chrome still kills
+// the worker mid-run, the next wake-up can close the leftover tab and tell the
+// user where it stopped.
+async function saveRunState(state) {
+  await chrome.storage.local.set({ applyRun: state });
+}
+
+async function clearRunState() {
+  await chrome.storage.local.remove('applyRun');
+}
+
+async function recoverInterruptedRun() {
+  const { applyRun } = await chrome.storage.local.get('applyRun');
+  if (!applyRun) return;
+  await clearRunState();
+  for (const id of applyRun.tabIds || []) {
+    await chrome.tabs.remove(id).catch(() => {});
+  }
+  const unsure = applyRun.current ? ` "${applyRun.current}" may not have been sent, please check it.` : '';
+  chrome.notifications.create({
+    type: 'basic',
+    title: 'Auto-Apply Stopped Early',
+    message: `Stopped after ${applyRun.done} of ${applyRun.total} jobs.${unsure} Run it again to continue.`,
+    iconUrl: 'icons/icon128.png',
+  });
+}
+
 // Review mode: fill each application in its own tab and leave it for the user
 // to check and click Send. Nothing is sent from here.
 const MAX_REVIEW_TABS = 10;
@@ -264,6 +318,7 @@ const REVIEW_NOTIFICATION_ID = 'jf-review-matches';
 async function prepareForReview(jobs) {
   if (applyRunning) return { busy: true };
   applyRunning = true;
+  const release = keepAwake();
 
   let ready = 0;
   let firstTab = null;
@@ -272,7 +327,10 @@ async function prepareForReview(jobs) {
     const alreadyApplied = new Set(appliedUrls);
     const pending = jobs.filter(j => j.apply_url && !alreadyApplied.has(j.apply_url)).slice(0, MAX_REVIEW_TABS);
 
-    for (const job of pending) {
+    for (const [index, job] of pending.entries()) {
+      // Review tabs are meant to stay open, so none are listed for cleanup;
+      // nothing is sent here, so there's no "may have been sent" job either.
+      await saveRunState({ tabIds: [], total: pending.length, done: index, current: null });
       let tab;
       try {
         tab = await chrome.tabs.create({ url: 'about:blank', active: false });
@@ -291,6 +349,8 @@ async function prepareForReview(jobs) {
     }
   } finally {
     applyRunning = false;
+    release();
+    await clearRunState();
   }
 
   if (firstTab) {
@@ -338,6 +398,7 @@ chrome.notifications.onClicked.addListener(async (id) => {
 async function applyToJobs(jobs) {
   if (applyRunning) return { busy: true, applied: 0 };
   applyRunning = true;
+  const release = keepAwake();
 
   let appliedCount = 0;
   let bgTab;
@@ -349,7 +410,8 @@ async function applyToJobs(jobs) {
 
     bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
 
-    for (const job of pending) {
+    for (const [index, job] of pending.entries()) {
+      await saveRunState({ tabIds: [bgTab.id], total: pending.length, done: index, current: job.title });
       try {
         await chrome.tabs.update(bgTab.id, { url: job.apply_url });
         await waitForTabLoad(bgTab.id);
@@ -419,6 +481,8 @@ async function applyToJobs(jobs) {
     }
   } finally {
     applyRunning = false;
+    release();
+    await clearRunState();
     if (bgTab) { try { await chrome.tabs.remove(bgTab.id); } catch {} }
   }
 
