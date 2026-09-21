@@ -14,6 +14,17 @@ import { Search, Loader2, SlidersHorizontal, Bookmark, User, X, Check, LogOut } 
 
 type Tab = 'search' | 'saved' | 'alerts' | 'profile';
 
+// Calls /api/jobs and surfaces the server's own error message (e.g. the
+// rate-limit notice) instead of a generic one.
+async function fetchJobs(params: URLSearchParams): Promise<Job[]> {
+  const res = await fetch(`/api/jobs?${params}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data || data.error) {
+    throw new Error(data?.error || 'Search failed. Please try again.');
+  }
+  return data.jobs || [];
+}
+
 // Same key for a search result and its saved row, so bookmarks match.
 function savedKey(source: string, sourceId: string) {
   return `${source}:${sourceId}`;
@@ -93,11 +104,7 @@ export default function Home() {
         remote: String(remoteOnly),
         date: dateFilter,
       });
-      const res = await fetch(`/api/jobs?${params}`);
-      if (!res.ok) throw new Error('Search failed');
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      return data.jobs || [];
+      return await fetchJobs(params);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed. Please try again.');
       return [];
@@ -112,29 +119,13 @@ export default function Home() {
       setError('');
 
       try {
-        const searches = Array.from(selectedFilters).map((filter) => {
-          const params = new URLSearchParams({ q: filter, remote: String(remoteOnly), date: dateFilter });
-          return fetch(`/api/jobs?${params}`).then((r) => r.json());
-        });
+        // One request for all selected filters (plus the text box), so a
+        // multi-filter search doesn't trip the per-minute rate limit.
+        const params = new URLSearchParams({ remote: String(remoteOnly), date: dateFilter });
+        for (const filter of selectedFilters) params.append('q', filter);
+        if (query.trim()) params.append('q', query.trim());
 
-        // Also search the text input if it has content
-        if (query.trim()) {
-          const params = new URLSearchParams({ q: query, remote: String(remoteOnly), date: dateFilter });
-          searches.push(fetch(`/api/jobs?${params}`).then((r) => r.json()));
-        }
-
-        const results = await Promise.all(searches);
-        const allJobs: Job[] = results.flatMap((r) => r.jobs || []);
-
-        // Deduplicate by title + company
-        const seen = new Set<string>();
-        const unique = allJobs.filter((job) => {
-          const key = `${job.title.toLowerCase()}_${job.company.toLowerCase()}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-
+        const unique = await fetchJobs(params);
         setJobs(unique);
       } catch (err) {
         setJobs([]);
