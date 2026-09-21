@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Loader2, Mail, Lock, ArrowRight, Download, Globe, Search, Zap, FileText, Send, Shield, BarChart3, ChevronRight, Check } from 'lucide-react';
 
@@ -37,7 +38,15 @@ function FadeIn({ children, delay = 0, className = '' }: { children: React.React
 }
 
 export default function LoginPage() {
-  const { signIn, signUp, loading: authLoading } = useAuth();
+  const { user, signIn, signUp, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // On the standalone /login route, send a logged-in user into the app. (At
+  // "/" this page is rendered by Home, which swaps to the app by itself.)
+  useEffect(() => {
+    if (user && pathname === '/login') router.replace('/');
+  }, [user, pathname, router]);
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [showAuth, setShowAuth] = useState(false);
   const [email, setEmail] = useState('');
