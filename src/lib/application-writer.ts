@@ -279,6 +279,15 @@ export function findAiTells(text: string, subject = ''): string[] {
   return tells;
 }
 
+// Page inputs that aren't part of the application (the site's search bar,
+// filters, newsletter sign-ups). The extension collects every input on the
+// page, so drop these before the AI sees them and never fill them.
+const NON_APPLICATION_FIELD = /\b(search|query|keywords?|filter|sort|newsletter|subscribe|coupon|promo)\b|^q$/i;
+
+function applicationFields(fields: FormField[] = []): FormField[] {
+  return fields.filter((f) => ![f.name, f.id, f.label].some((v) => v && NON_APPLICATION_FIELD.test(v.trim())));
+}
+
 // --- Writing ------------------------------------------------------------------
 
 async function callModel(client: Anthropic, prompt: string) {
@@ -311,6 +320,7 @@ export async function writeApplication(
   profile: WriterProfile,
   opts: WriteOptions
 ): Promise<WrittenApplication> {
+  opts = { ...opts, formFields: applicationFields(opts.formFields) };
   let draft = await callModel(client, buildPrompt(job, profile, opts));
 
   // One targeted rewrite if AI giveaways slipped through (dashes are fixed
