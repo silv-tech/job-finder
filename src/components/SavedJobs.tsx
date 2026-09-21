@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Job, SavedJob } from '@/lib/types';
-import { authedFetch } from '@/lib/api-client';
+import { SavedJob } from '@/lib/types';
+import { authedFetch, apiError } from '@/lib/api-client';
 import { Bookmark, ExternalLink, Mail, ChevronDown, Trash2, Loader2 } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -20,6 +20,8 @@ const STATUSES = ['new', 'interested', 'applied', 'messaged', 'interviewing', 'r
 export default function SavedJobs() {
   const [jobs, setJobs] = useState<SavedJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     fetchJobs();
@@ -28,40 +30,64 @@ export default function SavedJobs() {
   async function fetchJobs() {
     try {
       const res = await authedFetch('/api/saved-jobs');
+      if (!res.ok) {
+        setLoadError(await apiError(res, 'Could not load your saved jobs.'));
+        return;
+      }
       const data = await res.json();
       setJobs(data.jobs || []);
+      setLoadError('');
     } catch {
-      setJobs([]);
+      setLoadError('Could not reach the server. Check your connection.');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleStatusChange(id: string, status: string) {
-    // Optimistic update
+    const previous = jobs.find((j) => j.id === id)?.status;
+    // Optimistic update, rolled back if the server says no
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status: status as SavedJob['status'] } : j)));
+    setActionError('');
+    const rollback = () =>
+      setJobs((prev) => prev.map((j) => (j.id === id && previous ? { ...j, status: previous } : j)));
     try {
-      await authedFetch('/api/saved-jobs', {
+      const res = await authedFetch('/api/saved-jobs', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status }),
       });
+      if (!res.ok) {
+        rollback();
+        setActionError(await apiError(res, 'Could not update the status.'));
+      }
     } catch {
-      // Revert on failure
-      await fetchJobs();
+      rollback();
+      setActionError('Could not reach the server. The status was not changed.');
     }
   }
 
   async function handleRemove(id: string) {
+    const index = jobs.findIndex((j) => j.id === id);
+    const removed = jobs[index];
+    if (!removed) return;
     setJobs((prev) => prev.filter((j) => j.id !== id));
+    setActionError('');
+    const restore = () =>
+      setJobs((prev) => (prev.some((j) => j.id === id) ? prev : [...prev.slice(0, index), removed, ...prev.slice(index)]));
     try {
-      await authedFetch('/api/saved-jobs', {
+      const res = await authedFetch('/api/saved-jobs', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
+      if (!res.ok) {
+        restore();
+        setActionError(await apiError(res, 'Could not remove the job.'));
+      }
     } catch {
-      await fetchJobs();
+      restore();
+      setActionError('Could not reach the server. The job was not removed.');
     }
   }
 
@@ -70,6 +96,23 @@ export default function SavedJobs() {
       <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
         <Loader2 size={32} className="mx-auto text-gray-300 mb-3 animate-spin" />
         <p className="text-gray-500">Loading saved jobs...</p>
+      </div>
+    );
+  }
+
+  if (loadError && jobs.length === 0) {
+    return (
+      <div className="bg-white border border-red-200 rounded-xl p-8 text-center">
+        <p className="text-red-600 mb-3">{loadError}</p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            fetchJobs();
+          }}
+          className="text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -85,6 +128,9 @@ export default function SavedJobs() {
 
   return (
     <div className="space-y-3">
+      {actionError && (
+        <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{actionError}</p>
+      )}
       {jobs.map((job) => (
         <div key={job.id} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4">
           <div className="min-w-0 flex-1">

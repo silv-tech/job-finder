@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
-import { authedFetch } from '@/lib/api-client';
+import { authedFetch, apiError } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { User, Save, Check, Plus, X, Upload, Loader2, FileText, Globe } from 'lucide-react';
 
@@ -10,6 +10,7 @@ export default function ProfileSettings() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile>(getProfile());
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [newSkill, setNewSkill] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -24,14 +25,20 @@ export default function ProfileSettings() {
 
   async function handleSave() {
     saveProfile(profile);
+    setSaveError('');
     try {
-      await authedFetch('/api/extension/profile', {
+      const res = await authedFetch('/api/extension/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...profile, user_id: user?.id }),
       });
+      if (!res.ok) {
+        setSaveError(`Saved on this device only. Could not sync to your account: ${await apiError(res)}`);
+        return;
+      }
     } catch {
-      // Supabase not configured, still saved locally
+      setSaveError('Saved on this device only. Could not reach the server to sync your account.');
+      return;
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -431,6 +438,9 @@ export default function ProfileSettings() {
         {saved ? <Check size={18} /> : <Save size={18} />}
         {saved ? 'Saved!' : 'Save Profile'}
       </button>
+      {saveError && (
+        <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{saveError}</p>
+      )}
     </div>
   );
 }
