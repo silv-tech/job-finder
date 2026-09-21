@@ -9,7 +9,8 @@ import { User, Save, Check, Plus, X, Upload, Loader2, FileText, Globe } from 'lu
 
 export default function ProfileSettings() {
   const { user } = useAuth();
-  const [profile, setProfile] = useState<UserProfile>(getProfile());
+  const [profile, setProfile] = useState<UserProfile>(() => getProfile());
+  const [serverLoaded, setServerLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [newSkill, setNewSkill] = useState('');
@@ -20,11 +21,35 @@ export default function ProfileSettings() {
   const [importSuccess, setImportSuccess] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // The saved profile in the database is the source of truth (the extension
+  // and the AI read it). Load it over the browser's local copy so pressing
+  // Save can't overwrite server data (resume, writing samples) with stale or
+  // empty local values.
   useEffect(() => {
-    setProfile(getProfile());
+    let cancelled = false;
+    authedFetch('/api/extension/profile')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.profile) return;
+        setProfile((prev) => {
+          const merged = { ...prev };
+          for (const [key, value] of Object.entries(data.profile)) {
+            const empty = value == null || value === '' || (Array.isArray(value) && value.length === 0);
+            if (!empty) (merged as Record<string, unknown>)[key] = value;
+          }
+          saveProfile(merged);
+          return merged;
+        });
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setServerLoaded(true));
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleSave() {
+    if (!serverLoaded) return;
     saveProfile(profile);
     setSaveError('');
     try {
@@ -433,7 +458,8 @@ export default function ProfileSettings() {
 
       <button
         onClick={handleSave}
-        className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
+        disabled={!serverLoaded}
+        className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-60 ${
           saved
             ? 'bg-emerald-500 text-white'
             : 'bg-slate-900 hover:bg-slate-800 text-white'
