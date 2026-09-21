@@ -20,25 +20,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // The background worker is the only place that refreshes tokens (refresh
     // tokens are single-use, so two refreshers would log the user out).
+    // Only log out when the login is really rejected; on a network or server
+    // problem keep the user signed in (the status bar says the server is
+    // unreachable) so background auto-apply keeps its tokens.
+    let loggedOut = false;
+    let reachable = false;
     // Second pass forces a refresh in case the token was revoked early.
     for (const force of [false, true]) {
       const auth = await chrome.runtime.sendMessage({ action: 'refreshAuth', force }).catch(() => null);
-      if (!auth?.ok) break;
+      if (auth?.status === 'rejected' || auth?.status === 'signed_out') {
+        loggedOut = true;
+        break;
+      }
+      if (!auth?.ok) break; // unavailable: can't tell, stay logged in
       try {
-        const { authToken: freshToken, userEmail: freshEmail } = await chrome.storage.local.get(['authToken', 'userEmail']);
+        const { authToken: freshToken } = await chrome.storage.local.get('authToken');
         const res = await fetch(`${apiUrl}/api/auth/session`, {
           headers: { 'Authorization': `Bearer ${freshToken}` },
         });
         if (res.ok) {
-          clearTimeout(loadingTimeout);
-          loadingView.classList.add('hidden');
-          showMainView(freshEmail || userEmail || 'User', config);
-          return;
+          reachable = true;
+          break;
         }
-      } catch {}
+        if (res.status !== 401) break; // server error: stay logged in
+        if (force) loggedOut = true; // still 401 after a fresh token
+      } catch {
+        break; // network error: stay logged in
+      }
     }
 
-    // Refresh failed — clear and show login
+    if (!loggedOut) {
+      const { userEmail: freshEmail } = await chrome.storage.local.get('userEmail');
+      clearTimeout(loadingTimeout);
+      loadingView.classList.add('hidden');
+      showMainView(freshEmail || userEmail || 'User', config);
+      if (!reachable) {
+        const statusBar = document.getElementById('status-bar');
+        statusBar.textContent = "Can't reach the server right now. You're still logged in.";
+        statusBar.className = 'status-bar status-disconnected';
+      }
+      return;
+    }
+
+    // Login really rejected: clear it and show the login screen
     await chrome.storage.local.remove(['authToken', 'userEmail', 'authRefreshToken']);
   }
 
@@ -445,7 +469,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error('Not OK');
       }
     } catch {
-      statusBar.textContent = 'Not connected, start the app first';
+      statusBar.textContent = "Can't reach the server right now. You're still logged in.";
       statusBar.className = 'status-bar status-disconnected';
     }
   }

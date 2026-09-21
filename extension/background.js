@@ -33,11 +33,15 @@ const REFRESH_MARGIN_SECONDS = 10 * 60;
 // the user out. Everything (popup included) goes through this one promise.
 let refreshInFlight = null;
 
-// Returns true when a usable token is in storage afterwards.
+// Result of making sure a usable token is in storage:
+//   'ok'          token is valid (or was just refreshed)
+//   'rejected'    Supabase refused the refresh token: really logged out
+//   'unavailable' network / server problem: still logged in, try again later
+//   'signed_out'  no tokens stored
 async function refreshTokenIfNeeded(force = false) {
   const { authToken, authRefreshToken } = await chrome.storage.local.get(['authToken', 'authRefreshToken']);
-  if (!authToken || !authRefreshToken) return false;
-  if (!force && tokenSecondsLeft(authToken) > REFRESH_MARGIN_SECONDS) return true;
+  if (!authToken || !authRefreshToken) return 'signed_out';
+  if (!force && tokenSecondsLeft(authToken) > REFRESH_MARGIN_SECONDS) return 'ok';
 
   if (!refreshInFlight) {
     refreshInFlight = refreshToken(authRefreshToken).finally(() => {
@@ -52,7 +56,7 @@ async function refreshToken(authRefreshToken) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
   try {
     const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
-    if (!cfgRes.ok) return false;
+    if (!cfgRes.ok) return 'unavailable';
     const { url: supabaseUrl, anonKey } = await cfgRes.json();
 
     const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
@@ -60,15 +64,17 @@ async function refreshToken(authRefreshToken) {
       headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
       body: JSON.stringify({ refresh_token: authRefreshToken }),
     });
+    // 400/401 = Supabase says this refresh token is invalid or used up
+    if (refreshRes.status === 400 || refreshRes.status === 401) return 'rejected';
     const data = await refreshRes.json();
     if (refreshRes.ok && data.access_token) {
       const update = { authToken: data.access_token, authRefreshToken: data.refresh_token };
       if (data.user?.email) update.userEmail = data.user.email;
       await chrome.storage.local.set(update);
-      return true;
+      return 'ok';
     }
   } catch {}
-  return false;
+  return 'unavailable';
 }
 
 // Get auth headers for API calls, refreshing the token first if it's close to
@@ -87,7 +93,7 @@ async function getAuthHeaders() {
 // retries once, so an expired session never silently stops auto-apply.
 async function apiFetch(url, init = {}) {
   let res = await fetch(url, { ...init, headers: await getAuthHeaders() });
-  if (res.status === 401 && (await refreshTokenIfNeeded(true))) {
+  if (res.status === 401 && (await refreshTokenIfNeeded(true)) === 'ok') {
     res = await fetch(url, { ...init, headers: await getAuthHeaders() });
   }
   return res;
@@ -379,7 +385,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'refreshAuth') {
-    refreshTokenIfNeeded(!!message.force).then((ok) => sendResponse({ ok }));
+    refreshTokenIfNeeded(!!message.force).then((status) => sendResponse({ ok: status === 'ok', status }));
     return true;
   }
 
