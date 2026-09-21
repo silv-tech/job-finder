@@ -111,15 +111,38 @@ async function isAuthenticated() {
   return !!authToken;
 }
 
-// Initialize on install
+// Chrome may drop alarms when the browser restarts, and they used to be
+// created only on install (with the default interval, which also reset the
+// user's interval on every extension update). Make sure both alarms exist and
+// match the saved settings; creating an alarm with the same name replaces it.
+async function ensureAlarms() {
+  const { config } = await chrome.storage.local.get('config');
+  const scanInterval = config?.scanInterval || DEFAULT_CONFIG.scanInterval;
+
+  const scan = await chrome.alarms.get('autoScan');
+  if (!scan || scan.periodInMinutes !== scanInterval) {
+    await chrome.alarms.create('autoScan', { periodInMinutes: scanInterval });
+  }
+  if (!(await chrome.alarms.get('refreshToken'))) {
+    await chrome.alarms.create('refreshToken', { periodInMinutes: 20 });
+  }
+}
+
+// Initialize on install / update
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('config');
   if (!existing.config) {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
-  chrome.alarms.create('autoScan', { periodInMinutes: DEFAULT_CONFIG.scanInterval });
-  chrome.alarms.create('refreshToken', { periodInMinutes: 20 });
+  await ensureAlarms();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureAlarms();
+});
+
+// Also check whenever the service worker wakes up
+ensureAlarms();
 
 // Handle periodic tasks
 chrome.alarms.onAlarm.addListener(async (alarm) => {
