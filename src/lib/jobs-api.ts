@@ -2,7 +2,6 @@ import { Job } from './types';
 
 const JSEARCH_BASE = 'https://jsearch.p.rapidapi.com';
 const REMOTIVE_BASE = 'https://remotive.com/api';
-const UPWORK_RSS_BASE = 'https://www.upwork.com/ab/feed/jobs/rss';
 
 // --- JSearch API ---
 async function searchJSearch(query: string, page: number = 1, remoteOnly: boolean = false, datePosted: string = 'week'): Promise<Job[]> {
@@ -108,101 +107,6 @@ function remotiveDate(value: unknown): string | null {
   const hasZone = /(Z|[+-]\d{2}:?\d{2})$/i.test(value);
   const d = new Date(hasZone ? value : `${value}Z`);
   return isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-// --- Upwork RSS Feed ---
-function getXmlTagContent(xml: string, tag: string): string {
-  const regex = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>|<${tag}[^>]*>([\\s\\S]*?)</${tag}>`);
-  const match = xml.match(regex);
-  if (!match) return '';
-  return match[1] ?? match[2] ?? '';
-}
-
-function parseUpworkItems(xml: string): Array<Record<string, string>> {
-  const items: Array<Record<string, string>> = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let itemMatch;
-  while ((itemMatch = itemRegex.exec(xml)) !== null) {
-    const block = itemMatch[1];
-    items.push({
-      title: getXmlTagContent(block, 'title'),
-      link: getXmlTagContent(block, 'link'),
-      description: getXmlTagContent(block, 'description'),
-      pubDate: getXmlTagContent(block, 'pubDate'),
-    });
-  }
-  return items;
-}
-
-function parseBudgetFromDescription(desc: string): { min?: number; max?: number } {
-  // Upwork descriptions often contain "Budget: $X" or "Hourly Range: $X-$Y"
-  const fixedMatch = desc.match(/Budget<\/b>:\s*\$([0-9,]+)/i);
-  if (fixedMatch) {
-    const val = parseInt(fixedMatch[1].replace(/,/g, ''), 10);
-    return { min: val, max: val };
-  }
-  const hourlyMatch = desc.match(/Hourly Range<\/b>:\s*\$([0-9.]+)\s*-\s*\$([0-9.]+)/i);
-  if (hourlyMatch) {
-    return { min: parseFloat(hourlyMatch[1]), max: parseFloat(hourlyMatch[2]) };
-  }
-  return {};
-}
-
-async function searchUpwork(query: string): Promise<Job[]> {
-  try {
-    const params = new URLSearchParams({
-      q: query,
-      sort: 'recency',
-    });
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(`${UPWORK_RSS_BASE}?${params}`, {
-      signal: controller.signal,
-      next: { revalidate: 3600 },
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      console.error('Upwork RSS error:', res.status);
-      return [];
-    }
-
-    const xml = await res.text();
-    const items = parseUpworkItems(xml);
-
-    return items.map((item, index): Job => {
-      const plainDesc = stripHtml(item.description || '');
-      const budget = parseBudgetFromDescription(item.description || '');
-      const isRemote = /remote/i.test(item.description || '') || /remote/i.test(item.title || '');
-      // Upwork titles often have format "Title - Upwork" — clean that up
-      const title = (item.title || '').replace(/\s*-\s*Upwork\s*$/i, '').trim();
-
-      return {
-        id: `upwork_${Date.now()}_${index}`,
-        title,
-        company: 'Upwork Client',
-        location: isRemote ? 'Remote' : 'Upwork',
-        salary_min: budget.min,
-        salary_max: budget.max,
-        salary_currency: 'USD',
-        description: plainDesc,
-        short_description: plainDesc.slice(0, 300) + '...',
-        skills: extractSkills(plainDesc),
-        job_type: 'contract',
-        remote: true, // Upwork jobs are inherently remote
-        apply_url: item.link || '',
-        contact_email: extractEmail(plainDesc),
-        source: 'upwork',
-        source_id: item.link || `upwork_${index}`,
-        posted_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      };
-    });
-  } catch (err) {
-    console.error('Upwork RSS fetch failed:', err);
-    return [];
-  }
 }
 
 // --- Himalayas API (free remote jobs) ---
@@ -315,14 +219,14 @@ export async function searchJobs(
   remoteOnly: boolean = false,
   dateFilter: string = 'week'
 ): Promise<Job[]> {
-  const [jsearchJobs, remotiveJobs, upworkJobs, himalayasJobs] = await Promise.all([
+  // (Upwork's RSS feed was shut down, so it's no longer a source.)
+  const [jsearchJobs, remotiveJobs, himalayasJobs] = await Promise.all([
     searchJSearch(query, page, remoteOnly, toJSearchDate(dateFilter)),
     page === 1 ? searchRemotive(query) : Promise.resolve([]),
-    page === 1 ? searchUpwork(query) : Promise.resolve([]),
     page === 1 ? searchHimalayas(query) : Promise.resolve([]),
   ]);
 
-  const allJobs = [...jsearchJobs, ...remotiveJobs, ...upworkJobs, ...himalayasJobs];
+  const allJobs = [...jsearchJobs, ...remotiveJobs, ...himalayasJobs];
 
   // Filter by date for non-JSearch sources (JSearch handles it server-side)
   const cutoff = getDateCutoff(dateFilter);

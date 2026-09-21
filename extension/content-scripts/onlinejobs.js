@@ -13,25 +13,12 @@ console.log('[JF] Content script loaded on:', window.location.href);
       checkAuthThen(() => scanAndMatch()).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
-    if (message.action === 'autoScan') {
-      checkAuthThen(() => scanAndMatch()).then(() => {});
-      return true;
-    }
-    if (message.action === 'applyToJob') {
-      checkAuthThen(() => applyToJob(message.job, message.application)).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
-      return true;
-    }
     if (message.action === 'clickApplyButton') {
       handleClickApplyButton().then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'fillApplyForm') {
       handleFillApplyForm(message.job).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
-      return true;
-    }
-    if (message.action === 'scanAllPages') {
-      // This is now handled by background script navigating the tab
-      checkAuthThen(() => scanAllPagesViaNav(message.maxPages || 5)).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'scrapeAndReport') {
@@ -46,10 +33,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
         }
       });
       sendResponse({ jobs, url: window.location.href, pageLinks });
-      return true;
-    }
-    if (message.action === 'scrapeCurrentPage') {
-      sendResponse({ jobs: scrapeJobListings() });
       return true;
     }
     if (message.action === 'autoFillAndSend') {
@@ -949,38 +932,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
   // ========== CORE LOGIC ==========
 
-  async function scanAllPagesViaNav(maxPages) {
-    // Background script navigates the tab to each page, scrapes, then comes back
-    const result = await chrome.runtime.sendMessage({
-      action: 'scanMultiplePages',
-      maxPages,
-      baseUrl: window.location.href,
-    });
-
-    if (result?.error) {
-      showOverlay(`
-        <div class="jf-panel jf-panel-small">
-          <div class="jf-panel-header">
-            <h2>Error</h2>
-            <button id="jf-close" class="jf-close-btn">&times;</button>
-          </div>
-          <div class="jf-panel-body">
-            <p class="jf-error">${escapeHtml(result.error)}</p>
-          </div>
-        </div>
-      `);
-      return result;
-    }
-
-    if (result?.matches) {
-      await chrome.storage.local.set({ lastScanResults: result.matches, lastScanTime: Date.now() });
-      showMatchResults(result.matches);
-    }
-
-    return { jobs: result?.totalJobs || 0, matches: result?.matches?.length || 0 };
-  }
-
-  // Old scanAllPages removed - replaced by scanAllPagesViaNav + background orchestration
   async function _unused_scanAllPages(maxPages) {
     if (isProcessing) return { error: 'Already processing' };
     isProcessing = true;
