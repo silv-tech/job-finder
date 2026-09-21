@@ -16,32 +16,40 @@ const DEFAULT_CONFIG = {
   },
 };
 
-// Get auth headers for API calls, auto-refresh if needed
-async function getAuthHeaders() {
-  let { authToken } = await chrome.storage.local.get('authToken');
-  const headers = { 'Content-Type': 'application/json' };
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+// Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
+function tokenSecondsLeft(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 0;
+  } catch {
+    return 0;
   }
-  return headers;
 }
 
-async function refreshTokenIfNeeded() {
+// Refresh early so a token never expires mid-cycle.
+const REFRESH_MARGIN_SECONDS = 10 * 60;
+
+// Supabase refresh tokens are single-use, so two refreshes at once would log
+// the user out. Everything (popup included) goes through this one promise.
+let refreshInFlight = null;
+
+// Returns true when a usable token is in storage afterwards.
+async function refreshTokenIfNeeded(force = false) {
   const { authToken, authRefreshToken } = await chrome.storage.local.get(['authToken', 'authRefreshToken']);
   if (!authToken || !authRefreshToken) return false;
+  if (!force && tokenSecondsLeft(authToken) > REFRESH_MARGIN_SECONDS) return true;
 
-  const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-
-  // Check if current token works
-  try {
-    const res = await fetch(`${apiUrl}/api/auth/session`, {
-      headers: { 'Authorization': `Bearer ${authToken}` },
+  if (!refreshInFlight) {
+    refreshInFlight = refreshToken(authRefreshToken).finally(() => {
+      refreshInFlight = null;
     });
-    if (res.ok) return true;
-  } catch {}
+  }
+  return refreshInFlight;
+}
 
-  // Token expired, refresh it
+async function refreshToken(authRefreshToken) {
+  const { config } = await chrome.storage.local.get('config');
+  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
   try {
     const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
     if (!cfgRes.ok) return false;
@@ -54,14 +62,35 @@ async function refreshTokenIfNeeded() {
     });
     const data = await refreshRes.json();
     if (refreshRes.ok && data.access_token) {
-      await chrome.storage.local.set({
-        authToken: data.access_token,
-        authRefreshToken: data.refresh_token,
-      });
+      const update = { authToken: data.access_token, authRefreshToken: data.refresh_token };
+      if (data.user?.email) update.userEmail = data.user.email;
+      await chrome.storage.local.set(update);
       return true;
     }
   } catch {}
   return false;
+}
+
+// Get auth headers for API calls, refreshing the token first if it's close to
+// expiring.
+async function getAuthHeaders() {
+  await refreshTokenIfNeeded();
+  const { authToken } = await chrome.storage.local.get('authToken');
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
+// fetch() to our API with auth. On a 401 it force-refreshes the token and
+// retries once, so an expired session never silently stops auto-apply.
+async function apiFetch(url, init = {}) {
+  let res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+  if (res.status === 401 && (await refreshTokenIfNeeded(true))) {
+    res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+  }
+  return res;
 }
 
 // Check if user is authenticated
@@ -77,7 +106,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
   chrome.alarms.create('autoScan', { periodInMinutes: DEFAULT_CONFIG.scanInterval });
-  chrome.alarms.create('refreshToken', { periodInMinutes: 45 });
+  chrome.alarms.create('refreshToken', { periodInMinutes: 20 });
 });
 
 // Handle periodic tasks
@@ -130,11 +159,8 @@ async function handleAutoApplyCycle(tabId) {
 
     // Step 2: Match jobs
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-    const headers = await getAuthHeaders();
-
-    const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const matchRes = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
@@ -317,6 +343,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'refreshAuth') {
+    refreshTokenIfNeeded(!!message.force).then((ok) => sendResponse({ ok }));
+    return true;
+  }
+
   if (message.action === 'checkAuth') {
     isAuthenticated().then((authed) => sendResponse({ authenticated: authed }));
     return true;
@@ -399,10 +430,8 @@ async function handleMatchJobs(jobs) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore || 55 }),
     });
 
@@ -429,10 +458,8 @@ async function handleGenerateApplication(job, formFields) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/extension/generate-application`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/generate-application`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({
         job,
         profile: config?.profile || DEFAULT_CONFIG.profile,
@@ -456,10 +483,8 @@ async function handleSaveJob(job) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/saved-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/saved-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({
         source_id: `onlinejobs_${job.id || Date.now()}`,
         source: 'onlinejobs_ph',
@@ -625,11 +650,8 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
 
     const { config } = await chrome.storage.local.get('config');
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-    const headers = await getAuthHeaders();
-
-    const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 

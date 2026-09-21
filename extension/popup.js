@@ -18,42 +18,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
 
-    try {
-      const res = await fetch(`${apiUrl}/api/auth/session`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        clearTimeout(loadingTimeout);
-        loadingView.classList.add('hidden');
-        showMainView(userEmail || 'User', config);
-        return;
-      }
-    } catch {}
-
-    // Token expired — try to refresh it
-    const { authRefreshToken } = await chrome.storage.local.get('authRefreshToken');
-    if (authRefreshToken) {
+    // The background worker is the only place that refreshes tokens (refresh
+    // tokens are single-use, so two refreshers would log the user out).
+    // Second pass forces a refresh in case the token was revoked early.
+    for (const force of [false, true]) {
+      const auth = await chrome.runtime.sendMessage({ action: 'refreshAuth', force }).catch(() => null);
+      if (!auth?.ok) break;
       try {
-        const supabaseRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
-        if (supabaseRes.ok) {
-          const { url: supabaseUrl, anonKey } = await supabaseRes.json();
-          const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
-            body: JSON.stringify({ refresh_token: authRefreshToken }),
-          });
-          const refreshData = await refreshRes.json();
-          if (refreshRes.ok && refreshData.access_token) {
-            await chrome.storage.local.set({
-              authToken: refreshData.access_token,
-              authRefreshToken: refreshData.refresh_token,
-              userEmail: refreshData.user?.email || userEmail,
-            });
-            clearTimeout(loadingTimeout);
-            loadingView.classList.add('hidden');
-            showMainView(refreshData.user?.email || userEmail || 'User', config);
-            return;
-          }
+        const { authToken: freshToken, userEmail: freshEmail } = await chrome.storage.local.get(['authToken', 'userEmail']);
+        const res = await fetch(`${apiUrl}/api/auth/session`, {
+          headers: { 'Authorization': `Bearer ${freshToken}` },
+        });
+        if (res.ok) {
+          clearTimeout(loadingTimeout);
+          loadingView.classList.add('hidden');
+          showMainView(freshEmail || userEmail || 'User', config);
+          return;
         }
       } catch {}
     }
