@@ -424,7 +424,7 @@ export default function Home() {
       </main>
 
       {messageJob && (
-        <MessageModal job={messageJob} onClose={() => setMessageJob(null)} />
+        <MessageModal key={messageJob.id} job={messageJob} onClose={() => setMessageJob(null)} />
       )}
     </div>
   );

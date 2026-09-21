@@ -4,7 +4,7 @@ import { Job } from '@/lib/types';
 import { getProfile, generateMessage } from '@/lib/profile';
 import { authedFetch } from '@/lib/api-client';
 import { X, Send, Copy, Check, ExternalLink, Mail, Sparkles, Loader2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useEffectEvent, useRef } from 'react';
 
 interface MessageModalProps {
   job: Job;
@@ -12,33 +12,46 @@ interface MessageModalProps {
 }
 
 export default function MessageModal({ job, onClose }: MessageModalProps) {
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [isAiGenerated, setIsAiGenerated] = useState(false);
-
-  useEffect(() => {
-    // Start with template immediately, then try AI
-    const profile = getProfile();
-    const msg = generateMessage(profile, {
+  // Start with the template immediately; the AI draft follows. The parent
+  // keys this component by job, so this runs once per job.
+  const [template] = useState(() =>
+    generateMessage(getProfile(), {
       title: job.title,
       company: job.company,
       description: job.description,
       skills: job.skills,
-    });
-    setSubject(msg.subject);
-    setBody(msg.body);
+    })
+  );
+  const [subject, setSubject] = useState(template.subject);
+  const [body, setBody] = useState(template.body);
+  const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+  const [aiLoading, setAiLoading] = useState(true);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
+  // AI draft that arrived after the user started editing; offered, not forced.
+  const [pendingAi, setPendingAi] = useState<{ subject: string; body: string } | null>(null);
+  const editedRef = useRef(false);
 
-    // Auto-generate with AI
-    generateWithAI();
-  }, [job]);
+  const generateFirstDraft = useEffectEvent(() => {
+    generateWithAI(false);
+  });
+  useEffect(() => {
+    generateFirstDraft();
+  }, []);
 
-  async function generateWithAI() {
-    setAiLoading(true);
+  function applyAiDraft(draft: { subject: string; body: string }) {
+    setSubject(draft.subject);
+    setBody(draft.body);
+    setIsAiGenerated(true);
+    setPendingAi(null);
+    editedRef.current = false;
+  }
+
+  // `requested` = the user clicked Regenerate, so replace the text. The
+  // automatic first draft only replaces text the user hasn't edited yet.
+  async function generateWithAI(requested: boolean) {
     try {
       const profile = getProfile();
       const res = await authedFetch('/api/generate-message', {
@@ -50,9 +63,9 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
       if (res.ok) {
         const data = await res.json();
         if (data.subject && data.body) {
-          setSubject(data.subject);
-          setBody(data.body);
-          setIsAiGenerated(true);
+          const draft = { subject: data.subject, body: data.body };
+          if (requested || !editedRef.current) applyAiDraft(draft);
+          else setPendingAi(draft);
         }
       }
     } catch {
@@ -139,7 +152,10 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
               </span>
             )}
             <button
-              onClick={generateWithAI}
+              onClick={() => {
+                setAiLoading(true);
+                generateWithAI(true);
+              }}
               disabled={aiLoading}
               className="p-2 hover:bg-indigo-100 text-indigo-500 rounded-lg transition-colors disabled:opacity-50"
               title="Regenerate with AI"
@@ -154,12 +170,31 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
 
         {/* Form */}
         <div className="p-5 space-y-4">
+          {pendingAi && (
+            <div className="flex items-center justify-between gap-3 text-sm bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-2 rounded-lg">
+              <span className="flex items-center gap-1.5">
+                <Sparkles size={14} /> AI draft is ready. You&apos;ve edited this one, so it wasn&apos;t replaced.
+              </span>
+              <span className="flex gap-2 shrink-0">
+                <button onClick={() => applyAiDraft(pendingAi)} className="font-semibold hover:underline">
+                  Use AI draft
+                </button>
+                <button onClick={() => setPendingAi(null)} className="text-indigo-500 hover:underline">
+                  Keep mine
+                </button>
+              </span>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
             <input
               type="text"
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+              onChange={(e) => {
+                editedRef.current = true;
+                setSubject(e.target.value);
+              }}
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
             />
           </div>
@@ -168,7 +203,10 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
             <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
             <textarea
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                editedRef.current = true;
+                setBody(e.target.value);
+              }}
               rows={14}
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-y font-mono leading-relaxed"
             />
