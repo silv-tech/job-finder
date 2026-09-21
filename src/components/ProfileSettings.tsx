@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { UserProfile, getProfile, saveProfile } from '@/lib/profile';
 import { authedFetch, apiError } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
+import RoleHighlights from '@/components/RoleHighlights';
 import { User, Save, Check, Plus, X, Upload, Loader2, FileText, Globe } from 'lucide-react';
 
 export default function ProfileSettings() {
@@ -348,6 +349,9 @@ export default function ProfileSettings() {
           </p>
         )}
       </div>
+
+      {/* Per-role proof points */}
+      <RoleHighlights />
 
       {/* Skills */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200">
