@@ -36,6 +36,8 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
   const editedRef = useRef(false);
   // Role focus the AI wrote for ('general' = none). Detected on the first draft.
   const [role, setRole] = useState<string>('');
+  // false when the server couldn't fact-check the AI draft
+  const [factChecked, setFactChecked] = useState(true);
 
   const generateFirstDraft = useEffectEvent(() => {
     generateWithAI(false);
@@ -72,6 +74,7 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
         const data = await res.json();
         if (data.subject && data.body) {
           setRole(data.role || 'general');
+          setFactChecked(data.fact_checked !== false);
           const draft = { subject: data.subject, body: data.body };
           if (requested || !editedRef.current) applyAiDraft(draft);
           else setPendingAi(draft);
@@ -228,6 +231,12 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
                 </button>
               </span>
             </div>
+          )}
+
+          {isAiGenerated && !factChecked && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
+              This draft couldn&apos;t be fact-checked (the AI service had a problem). Read it carefully before sending, or click Regenerate.
+            </p>
           )}
 
           <div>

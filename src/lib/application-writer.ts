@@ -53,6 +53,8 @@ export interface WrittenApplication {
   cover_letter: string;
   fields: Record<string, string>;
   hidden_instructions_found: string | null;
+  // false when the fact-check pass could not run; the draft wasn't verified
+  fact_checked: boolean;
 }
 
 export class WriterError extends Error {
@@ -248,7 +250,7 @@ ${fieldsBlock}
 5. VARY IT. Don't fall into a template. Match length to the post: if it asks several questions, go longer; otherwise stay under about 150 words. Sign off with the first name only.
    - Don't close with a stock line like "Happy to chat / walk through / answer any questions" or "Let me know if you're interested". End with something specific to this post instead: sometimes a short question about their setup, sometimes one concrete next step or a plain closing line. Don't always end with a question.
 
-6. SUBJECT LINE: natural and specific to what they need, something a real person would type (e.g. "Getting your 12-person team off your plate"). Never use the words "application" or "applying", never just the job title, not gimmicky. If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested").
+6. SUBJECT LINE: natural and specific to what they need, something a real person would type (e.g. "Getting your 12-person team off your plate"). Never use the words "application" or "applying", never just the job title, not gimmicky. If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested"). A word the post wants at the start or end of the MESSAGE belongs only there, not in the subject.
 
 7. SELF-EDIT BEFORE YOU FINISH. Reread once as a busy hiring manager (would I reply to this?) and once as a spam filter (any banned words, dashes, generic openers, unanswered questions?). Fix it, then give the final version.
 
@@ -408,7 +410,7 @@ async function factCheck(
   job: WriterJob,
   p: WriterProfile,
   draft: Awaited<ReturnType<typeof callModel>>
-): Promise<Awaited<ReturnType<typeof callModel>> | null> {
+): Promise<Awaited<ReturnType<typeof callModel>> | null | 'failed'> {
   const highlights = Object.entries(p.role_highlights || {})
     .filter(([k, v]) => !k.startsWith('_') && typeof v === 'string')
     .map(([k, v]) => `${k}:\n${v}`)
@@ -450,18 +452,22 @@ STEP 2. Rewrite ONLY the unsupported parts: keep the supported part and drop the
 
 Return ONLY this JSON:
 {"claims": [{"text": "the claim", "supported": true|false, "fact": "the supporting fact, or empty"}], "subject": "...", "cover_letter": "..."}`;
-  try {
-    const checked = await callModel(client, prompt, { model: FACT_CHECK_MODEL, effort: 'high' });
-    const claims = (checked as { claims?: unknown }).claims;
-    const unsupported = Array.isArray(claims)
-      ? claims.filter((c) => c && typeof c === 'object' && (c as { supported?: unknown }).supported === false)
-      : [];
-    if (process.env.WRITER_DEBUG) console.log('[fact-check] unsupported claims:', JSON.stringify(unsupported));
-    if (unsupported.length === 0) return null;
-    return { ...checked, hidden_instructions_found: draft.hidden_instructions_found };
-  } catch {
-    return null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const checked = await callModel(client, prompt, { model: FACT_CHECK_MODEL, effort: 'high' });
+      const claims = (checked as { claims?: unknown }).claims;
+      const unsupported = Array.isArray(claims)
+        ? claims.filter((c) => c && typeof c === 'object' && (c as { supported?: unknown }).supported === false)
+        : [];
+      if (process.env.WRITER_DEBUG) console.log('[fact-check] unsupported claims:', JSON.stringify(unsupported));
+      if (!Array.isArray(claims)) continue; // malformed: try once more
+      if (unsupported.length === 0) return null;
+      return { ...checked, hidden_instructions_found: draft.hidden_instructions_found };
+    } catch (err) {
+      console.error(`Fact-check attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
+    }
   }
+  return 'failed';
 }
 
 export async function writeApplication(
@@ -496,7 +502,9 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
     }
   }
 
-  const checked = await factCheck(client, job, profile, draft);
+  const factResult = await factCheck(client, job, profile, draft);
+  const factChecked = factResult !== 'failed';
+  const checked = factResult === 'failed' ? null : factResult;
   if (checked) {
     // Normalize the checker's text first: dashes and curly quotes are fixed
     // mechanically anyway, so they must not get a good fix rejected.
@@ -563,19 +571,22 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
     fields[k] = value.trim() === baseLetter.trim() ? letter : value; // keep the message field identical to the letter
   }
 
+  const subject = noSpacedDashes(stripAiTells(draft.subject || '')).replace(/[,\s]+$/, '');
+
   // Fallback: if the model left the form fields empty, fill the obvious ones.
   for (const f of opts.formFields || []) {
     const key = f.name || f.id;
     if (!key || fields[key]) continue;
     const label = `${f.label || ''} ${f.name || ''}`.toLowerCase();
-    if (/\bsubject\b/.test(label)) fields[key] = stripAiTells(draft.subject || '');
-    else if (/\b(message|cover|letter)\b/.test(label)) fields[key] = letter;
+    if (/\bsubject\b/.test(label)) fields[key] = subject;
+    else if (f.type === 'textarea' && /\b(message|cover|letter)\b/.test(label)) fields[key] = letter;
   }
 
   return {
-    subject: noSpacedDashes(stripAiTells(draft.subject || '')).replace(/[,\s]+$/, ''),
+    subject,
     cover_letter: letter,
     fields,
     hidden_instructions_found: draft.hidden_instructions_found || null,
+    fact_checked: factChecked,
   };
 }

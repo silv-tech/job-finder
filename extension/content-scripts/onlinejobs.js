@@ -320,6 +320,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
             <div style="${label}">Apply Points</div>
             <div style="font-size:13px;">2 points</div>
           </div>
+          ${app.fact_checked === false ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:12px;color:#991b1b;margin-bottom:8px;">
+            This one couldn't be fact-checked (the AI service had a problem). Read it carefully before sending, or click Regenerate.
+          </div>` : ''}
           ${app.hidden_instructions_found ? `
           <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;">
             Hidden instruction found: ${escapeHtml(app.hidden_instructions_found)}

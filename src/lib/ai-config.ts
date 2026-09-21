@@ -50,7 +50,7 @@ export function parseJsonResponse<T = Record<string, unknown>>(text: string): T 
 export function stripAiTells(text: string): string {
   if (!text) return text;
   return text
-    .replace(/—/g, ', ') // em dash -> comma (the #1 tell)
+    .replace(/\s*—\s*/g, ', ') // em dash -> comma (the #1 tell)
     .replace(/–/g, '-') // en dash -> hyphen
     .replace(/[“”]/g, '"') // curly double quotes -> straight
     .replace(/[‘’]/g, "'") // curly single quotes -> straight
