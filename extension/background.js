@@ -505,7 +505,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'generateApplication') {
-    handleGenerateApplication(message.job, message.formFields).then(sendResponse);
+    handleGenerateApplication(message.job, message.formFields, message.options).then(sendResponse);
     return true;
   }
 
@@ -646,7 +646,9 @@ async function handleMatchJobs(jobs) {
   }
 }
 
-async function handleGenerateApplication(job, formFields) {
+// options: { role, improve, avoid } for switching focus, "Make it better" and
+// "Regenerate" (see /api/extension/generate-application).
+async function handleGenerateApplication(job, formFields, options = {}) {
   if (!(await isAuthenticated())) {
     return { error: 'Not logged in' };
   }
@@ -661,6 +663,9 @@ async function handleGenerateApplication(job, formFields) {
         job,
         profile: config?.profile || DEFAULT_CONFIG.profile,
         form_fields: formFields,
+        role: options?.role,
+        improve: options?.improve,
+        avoid: options?.avoid,
       }),
     });
 
@@ -668,7 +673,10 @@ async function handleGenerateApplication(job, formFields) {
       return { error: 'Session expired. Please sign in again.' };
     }
 
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { error: data?.error || `API error: ${res.status}` };
+    }
     return await res.json();
   } catch (err) {
     return { error: err.message };

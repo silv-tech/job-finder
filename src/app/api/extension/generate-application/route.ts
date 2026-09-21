@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyExtensionAuth } from '@/lib/auth-api';
-import { getServiceClient } from '@/lib/supabase';
-import { WRITING_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
+import { stripAiTells } from '@/lib/ai-config';
 import { detectManualRequirements } from '@/lib/manual-requirements';
-import { wrapJobPost, JOB_POST_SAFETY_RULES, hasVerbatimCopy } from '@/lib/prompt-safety';
+import { loadWriterProfile } from '@/lib/stored-profile';
+import { writeApplication, WriterError, type Draft, type FormField } from '@/lib/application-writer';
+import { ROLE_KEYS, ROLE_LABELS, detectRole, isRoleKey, type RoleKey } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,133 +20,17 @@ function getClient() {
   return anthropic;
 }
 
-// Load the authoritative profile for this user from Supabase, then overlay any
-// non-empty fields the caller passed in. The extension's local profile is
-// often sparse (no resume_text, no writing_samples), so pulling the stored
-// profile server-side guarantees the model always writes from the full, real
-// profile — including the voice samples that make it sound human.
-async function loadProfile(
-  userId: string,
-  bodyProfile: Record<string, unknown> = {}
-): Promise<Record<string, unknown>> {
-  let stored: Record<string, unknown> = {};
-  try {
-    const supabase = getServiceClient();
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-    if (data) stored = data as Record<string, unknown>;
-  } catch {
-    // Supabase not configured / no row yet — fall back to the body profile.
-  }
-  const merged: Record<string, unknown> = { ...stored };
-  for (const [k, v] of Object.entries(bodyProfile)) {
-    const empty = v == null || v === '' || (Array.isArray(v) && v.length === 0);
-    if (!empty) merged[k] = v;
-  }
-  return merged;
+function asDraft(value: unknown): Draft | undefined {
+  const d = value as Partial<Draft> | undefined;
+  return d && typeof d.cover_letter === 'string' && d.cover_letter.trim()
+    ? { subject: String(d.subject || ''), cover_letter: d.cover_letter }
+    : undefined;
 }
 
-interface Profile {
-  name?: string;
-  email?: string;
-  phone?: string;
-  headline?: string;
-  skills?: string[];
-  bio?: string;
-  portfolio_url?: string;
-  linkedin_url?: string;
-  resume_text?: string;
-  writing_samples?: string;
-}
-
-function buildPrompt(job: {
-  title?: string;
-  company?: string;
-  description?: string;
-}, profile: Profile, formFields: unknown[]): string {
-  const skills = (profile.skills || []).join(', ');
-
-  const voiceBlock = profile.writing_samples?.trim()
-    ? `THE APPLICANT'S REAL WRITING VOICE (match this exactly):
-Below are real messages the applicant has actually written. Study the rhythm, sentence length, word choices, punctuation habits, and level of formality. Write the application so it sounds like the SAME person wrote it. Do not imitate a generic "professional" voice, imitate THIS voice.
-"""
-${profile.writing_samples.slice(0, 4000)}
-"""`
-    : `THE APPLICANT'S VOICE:
-No writing samples were provided. Infer a natural, plain-spoken voice from the resume and bio below. Write like a real, competent person typing a message to another person, not like a polished cover-letter template.`;
-
-  const resumeBlock = profile.resume_text?.trim()
-    ? `FULL RESUME / PORTFOLIO (use ONLY real facts from here; never invent experience, numbers, employers, or projects):
-"""
-${profile.resume_text.slice(0, 6000)}
-"""`
-    : '';
-
-  return `You are helping ${profile.name || 'the applicant'} apply to a real job. You write the application AS them, in their own voice. Everything you write must be truthful and grounded in the real background below. Never invent experience, skills, employers, metrics, or projects that are not supported by the profile.
-
-${voiceBlock}
-
-APPLICANT FACTS:
-- Name: ${profile.name || ''}
-- Email: ${profile.email || ''}
-- Phone: ${profile.phone || 'N/A'}
-- Headline: ${profile.headline || ''}
-- Skills: ${skills || 'N/A'}
-- Bio: ${profile.bio || ''}
-- Portfolio URL (copy EXACTLY, character-for-character, never shorten or drop path segments): ${profile.portfolio_url || 'N/A'}
-- LinkedIn URL (copy EXACTLY): ${profile.linkedin_url || 'N/A'}
-
-${resumeBlock}
-
-THE JOB:
-- Title: ${job.title || ''}
-- Company: ${job.company || ''}
-- Description:
-${wrapJobPost(job.description?.slice(0, 6000) || 'No description provided.')}
-
-${JOB_POST_SAFETY_RULES}
-
-FORM FIELDS ON THE APPLICATION PAGE (fill each one appropriately):
-${JSON.stringify(formFields || [], null, 2)}
-
-=== HOW TO WRITE THIS ===
-
-1. READ THE WHOLE POST FIRST.
-   - HIDDEN INSTRUCTIONS: Some posts hide a test, e.g. "put ORANGE in your subject", "start your message with Pineapple", "include code XYZ". Find every one and follow it EXACTLY, as long as it fits the safety rules above. A careful human applicant does this; it is what separates a real applicant from spam.
-   - EMBEDDED QUESTIONS: Many posts end with specific asks, e.g. "tell us about a time you...", "which of these tools have you used?", "why do you want this role?". Find and answer EVERY one, using the applicant's real experience. If the post asks 4 things, answer all 4. Skipping them is the fastest way to look like a bot.
-
-2. GROUND IT IN SPECIFICS.
-   - Pull 1 to 2 concrete, true details from the resume that directly match what THIS job needs, and name them. Specific beats generic every time.
-   - Reference something real from the job post so it is obvious you read it. Do not just restate the job description back at them.
-   - Always include the portfolio link naturally, as proof of work, copied exactly.
-
-3. SOUND LIKE A HUMAN, NOT AN AI. This is the whole point. Avoid every one of these tells:
-   - NEVER use the em dash (—) or en dash (–). Use a comma or period. This is the #1 giveaway.
-   - Do not open with "I came across", "I saw your posting", "I'm excited to", "I'd love the opportunity", "I hope this message finds you", "I am writing to apply".
-   - Banned words/phrases: leverage, utilize, facilitate, streamline, scalable, dynamic, thriving, cutting-edge, spearheaded, orchestrated, comprehensive, robust, passionate about, delve, tapestry, "in today's fast-paced world", "not only... but also", "furthermore", "moreover", "that being said".
-   - No perfectly balanced three-item lists ("dedicated, driven, and detail-oriented"). No rhetorical questions. No corporate closers like "I look forward to the opportunity to contribute".
-   - Use short, plain words: "use" not "utilize", "built" not "architected", "help" not "facilitate", "set up" not "orchestrated". Short sentences. Real, warm, direct.
-
-4. VARY IT. This applicant sends many applications. Do not fall into a template. Change how you open and how you structure each one so two applications never read the same. Match the length to the post: if it asks several questions, go longer; otherwise keep the message under about 150 words.
-
-5. SUBJECT LINE: natural and human, specific to the role. Not "Application for [Title]" and NOT gimmicky spam like "HIRE ME NOW!!!". Something a real person would type. If the post requires a hidden word in the subject, put it at the very end.
-
-6. SELF-EDIT BEFORE YOU FINISH. Reread your draft twice: once as a busy hiring manager (does this sound like a real person who read my post, or like AI filler?), and once as a spam filter (any banned words, em dashes, generic openers, unanswered questions?). Rewrite until it passes both. Only then produce the final version.
-
-For each form field, produce the right value (name -> name, email -> email, message/cover letter fields -> the message, etc.). Use the field's "name" (or "id" if name is empty) as the key. Only include fields from the list above.
-
-Return ONLY a JSON object, no other text:
-{
-  "subject": "the subject line",
-  "cover_letter": "the message body",
-  "fields": { "field_name_or_id": "value to fill", "...": "..." },
-  "hidden_instructions_found": "short note on any hidden test instructions you followed, or null"
-}`;
-}
-
+// Body: { job, profile?, form_fields?, role?, improve?, avoid? }
+//   role    - force a focus (management | automation | general_va | admin), else detected
+//   improve - { subject, cover_letter }: make this draft better
+//   avoid   - { subject, cover_letter }: write a fresh version unlike this one
 export async function POST(req: NextRequest) {
   const auth = await verifyExtensionAuth(req);
   if (auth instanceof NextResponse) return auth;
@@ -153,7 +38,9 @@ export async function POST(req: NextRequest) {
   const client = getClient();
 
   try {
-    const { job, profile: bodyProfile, form_fields } = await req.json();
+    const body = await req.json();
+    const job = body.job || {};
+    const formFields: FormField[] = Array.isArray(body.form_fields) ? body.form_fields : [];
 
     // Jobs that need a human (video, code test, live call) can't be automated.
     const manualCheck = detectManualRequirements(job.description || '');
@@ -165,9 +52,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 'general' = the user chose no special focus; otherwise their choice or detected
+    const role: RoleKey | null =
+      body.role === 'general' ? null : isRoleKey(body.role) ? body.role : detectRole(job);
+    const roleInfo = {
+      role,
+      role_label: role ? ROLE_LABELS[role] : 'General',
+      roles: ROLE_KEYS.map((key) => ({ key, label: ROLE_LABELS[key] })),
+    };
+
     // Always write from the full stored profile, overlaid with anything fresh
     // the extension sent.
-    const profile: Profile = await loadProfile(auth.userId, bodyProfile || {});
+    const profile = await loadWriterProfile(auth.userId, body.profile || {});
 
     // Fallback when no AI is configured: a plain template.
     if (!client) {
@@ -186,13 +82,15 @@ ${profile.email || ''}
 ${profile.phone || ''}`.trim());
 
       const fields: Record<string, string> = {};
-      for (const field of (form_fields || [])) {
+      for (const field of formFields) {
+        const key = field.name || field.id;
+        if (!key) continue;
         const label = (field.label || field.name || '').toLowerCase();
-        if (label.includes('name')) fields[field.name || field.id] = profile.name || '';
-        else if (label.includes('email')) fields[field.name || field.id] = profile.email || '';
-        else if (label.includes('phone')) fields[field.name || field.id] = profile.phone || '';
-        else if (label.includes('portfolio') || label.includes('website')) fields[field.name || field.id] = profile.portfolio_url || '';
-        else if (label.includes('linkedin')) fields[field.name || field.id] = profile.linkedin_url || '';
+        if (label.includes('name')) fields[key] = profile.name || '';
+        else if (label.includes('email')) fields[key] = profile.email || '';
+        else if (label.includes('phone')) fields[key] = profile.phone || '';
+        else if (label.includes('portfolio') || label.includes('website')) fields[key] = profile.portfolio_url || '';
+        else if (label.includes('linkedin')) fields[key] = profile.linkedin_url || '';
       }
 
       return NextResponse.json({
@@ -200,72 +98,21 @@ ${profile.phone || ''}`.trim());
         cover_letter: coverLetter,
         fields,
         hidden_instructions_found: null,
+        ...roleInfo,
       });
     }
 
-    const message = await client.messages.create({
-      model: WRITING_MODEL,
-      // Shared by thinking and the answer; the prompt asks for two self-edit
-      // passes, so 4096 could run out before the JSON was finished. Only
-      // tokens actually generated are billed.
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      messages: [{ role: 'user', content: buildPrompt(job, profile, form_fields) }],
+    const application = await writeApplication(client, job, profile, {
+      role,
+      formFields,
+      improve: asDraft(body.improve),
+      avoid: asDraft(body.avoid),
     });
-
-    // A cut-off or declined answer would parse as garbage; say what happened.
-    if (message.stop_reason === 'max_tokens') {
-      console.warn('application generation hit max_tokens', message.usage);
-      return NextResponse.json({ error: 'The AI ran out of room before finishing. Please try again.' }, { status: 502 });
-    }
-    if (message.stop_reason === 'refusal') {
-      return NextResponse.json({ error: 'The AI declined to write this one. Try writing it yourself.' }, { status: 502 });
-    }
-
-    const text = extractText(message);
-    if (!text) {
-      return NextResponse.json({ error: 'Unexpected response' }, { status: 500 });
-    }
-
-    const parsed = parseJsonResponse<{
-      subject?: string;
-      cover_letter?: string;
-      fields?: Record<string, unknown>;
-      hidden_instructions_found?: string | null;
-    }>(text);
-    if (!parsed) {
-      return NextResponse.json({ error: 'Could not parse application' }, { status: 500 });
-    }
-
-    // Block output where a post tricked the model into pasting private text.
-    const outputText = [parsed.subject, parsed.cover_letter, ...Object.values(parsed.fields || {})]
-      .filter((v) => typeof v === 'string')
-      .join('\n');
-    if (hasVerbatimCopy(outputText, profile.writing_samples, 12) || hasVerbatimCopy(outputText, profile.resume_text, 25)) {
-      console.warn('Generate application: blocked output copying private profile text');
-      return NextResponse.json({ error: 'Generated application looked unsafe, please try again' }, { status: 500 });
-    }
-
-    // Only keep fields that actually exist on the page, so a post can't make
-    // the extension fill arbitrary inputs.
-    const allowedKeys = new Set<string>();
-    for (const f of (Array.isArray(form_fields) ? form_fields : []) as { name?: string; id?: string; label?: string }[]) {
-      for (const k of [f.name, f.id, f.label]) if (k) allowedKeys.add(k.toLowerCase());
-    }
-    const safeFields: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed.fields || {})) {
-      if (typeof value === 'string' && allowedKeys.has(key.toLowerCase())) {
-        safeFields[key] = stripAiTells(value);
-      }
-    }
-    parsed.fields = safeFields;
-
-    // Final safety net: strip any residual AI tells (em dashes, curly quotes).
-    if (parsed.subject) parsed.subject = stripAiTells(parsed.subject);
-    if (parsed.cover_letter) parsed.cover_letter = stripAiTells(parsed.cover_letter);
-    return NextResponse.json(parsed);
+    return NextResponse.json({ ...application, ...roleInfo });
   } catch (err) {
+    if (err instanceof WriterError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('Generate application error:', err);
     return NextResponse.json({ error: 'Failed to generate application' }, { status: 500 });
   }

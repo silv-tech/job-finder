@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   bio TEXT DEFAULT '',
   resume_text TEXT DEFAULT '',       -- full imported resume/portfolio text
   writing_samples TEXT DEFAULT '',   -- user's real messages, for voice grounding
+  role_highlights JSONB DEFAULT '{}'::jsonb, -- per-role proof points from resume + portfolio
   updated_at TIMESTAMPTZ DEFAULT now(),
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -100,4 +101,5 @@ CREATE POLICY profiles_owner    ON profiles    FOR ALL USING (auth.uid() = user_
 --   ALTER TABLE saved_jobs  ADD CONSTRAINT saved_jobs_user_source_key UNIQUE (user_id, source_id);
 --   ALTER TABLE profiles    ADD COLUMN IF NOT EXISTS resume_text TEXT DEFAULT '';
 --   ALTER TABLE profiles    ADD COLUMN IF NOT EXISTS writing_samples TEXT DEFAULT '';
+--   ALTER TABLE profiles    ADD COLUMN IF NOT EXISTS role_highlights JSONB DEFAULT '{}'::jsonb;
 --   -- then enable RLS + policies exactly as above.
