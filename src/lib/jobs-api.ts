@@ -314,9 +314,17 @@ function extractSkills(text: string): string[] {
   return TECH_SKILLS.filter((skill) => lower.includes(skill));
 }
 
+// First real-looking email in the text. The domain must end in a letters-only
+// TLD, so trailing punctuation ("email jobs@acme.com.") isn't captured, and
+// retina image names like "logo@2x.png" are skipped.
 function extractEmail(text: string): string | undefined {
-  const match = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/);
-  return match ? match[0] : undefined;
+  const pattern = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])/gi;
+  for (const match of text.matchAll(pattern)) {
+    const email = match[0].replace(/^[.+-]+/, '');
+    if (/\.(png|jpe?g|gif|svg|webp|avif)$/i.test(email)) continue;
+    return email;
+  }
+  return undefined;
 }
 
 function stripHtml(html: string): string {
