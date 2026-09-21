@@ -232,9 +232,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
       filled.push('apply_points');
     }
 
-    // Save job
-    await chrome.runtime.sendMessage({ action: 'saveJob', job });
-
     // Find the Send Email button
     let sendBtn = null;
     document.querySelectorAll('a, button, input[type="submit"]').forEach((btn) => {
@@ -296,6 +293,8 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
         if (sendBtn) {
           sendBtn.click();
+          // Only now is it really applied
+          await chrome.runtime.sendMessage({ action: 'saveJob', job });
           await chrome.runtime.sendMessage({ action: 'logApply', job });
 
           showOverlay(`
@@ -323,29 +322,34 @@ console.log('[JF] Content script loaded on:', window.location.href);
           `);
         }
       });
+
+      // Filled, but the user still has to review and click Send
+      return { success: true, pending_review: true, filled: filled.length };
     } else {
       // Auto-send without review
-      if (sendBtn) {
-        await sleep(500);
-        sendBtn.click();
-        await chrome.runtime.sendMessage({ action: 'logApply', job });
-
-        showOverlay(`
-          <div class="jf-panel jf-panel-small">
-            <div class="jf-panel-header">
-              <h2>Application Sent!</h2>
-              <button id="jf-close" class="jf-close-btn">&times;</button>
-            </div>
-            <div class="jf-panel-body">
-              <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
-              <p>Filled ${filled.length} fields and submitted automatically.</p>
-            </div>
-          </div>
-        `);
+      if (!sendBtn) {
+        return { success: false, error: 'Send button not found', filled: filled.length };
       }
+      await sleep(500);
+      sendBtn.click();
+      await chrome.runtime.sendMessage({ action: 'saveJob', job });
+      await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Application Sent!</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+            <p>Filled ${filled.length} fields and submitted automatically.</p>
+          </div>
+        </div>
+      `);
     }
 
-    return { success: true, filled: filled.length };
+    return { success: true, sent: true, filled: filled.length };
   }
 
   async function checkAuthThen(fn) {
@@ -843,12 +847,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
           e.target.textContent = 'Manual';
           e.target.style.background = '#fef3c7';
           e.target.style.color = '#92400e';
-        } else if (result?.error) {
-          e.target.textContent = 'Error';
-          setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
-        } else {
+        } else if (result?.pending_review) {
+          e.target.textContent = 'Review in tab';
+        } else if (result?.sent) {
           e.target.textContent = 'Sent!';
           e.target.classList.add('jf-applied');
+        } else {
+          e.target.textContent = 'Error';
+          e.target.title = result?.error || 'Could not apply';
+          setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
         }
       });
     });

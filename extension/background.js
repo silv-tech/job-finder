@@ -394,6 +394,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const tab = await chrome.tabs.create({ url: message.job.apply_url, active: false });
         const result = await handleNavigateAndApply(message.job, tab.id);
+        if (result?.sent) {
+          // Give the send a moment to go through, then tidy up the hidden tab
+          setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 5000);
+        } else {
+          // Review, manual step, or error: bring the tab forward so the user
+          // can finish it instead of it sitting hidden
+          await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+          await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+        }
         sendResponse(result);
       } catch (err) {
         sendResponse({ error: err.message });
