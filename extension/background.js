@@ -93,6 +93,18 @@ async function apiFetch(url, init = {}) {
   return res;
 }
 
+// Merge changed settings into the latest stored config. Callers send only the
+// keys they changed, so a stale copy (e.g. a popup opened before "Sync
+// Profile") can't overwrite newer values. Updates run one at a time.
+let configWrite = Promise.resolve();
+function mergeConfig(changes) {
+  configWrite = configWrite.then(async () => {
+    const { config } = await chrome.storage.local.get('config');
+    await chrome.storage.local.set({ config: { ...DEFAULT_CONFIG, ...config, ...changes } });
+  }).catch(() => {});
+  return configWrite;
+}
+
 // Check if user is authenticated
 async function isAuthenticated() {
   const { authToken } = await chrome.storage.local.get('authToken');
@@ -329,7 +341,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'updateConfig') {
-    chrome.storage.local.set({ config: message.config }).then(() => sendResponse({ success: true }));
+    mergeConfig(message.config).then(() => sendResponse({ success: true }));
     return true;
   }
 

@@ -200,28 +200,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
     // Auto-save toggles when changed
-    document.getElementById('review-toggle').addEventListener('change', () => saveSettings(config));
-    document.getElementById('auto-apply-keywords').addEventListener('change', () => saveSettings(config));
+    document.getElementById('review-toggle').addEventListener('change', () => saveSettings());
+    document.getElementById('auto-apply-keywords').addEventListener('change', () => saveSettings());
     document.getElementById('auto-apply-toggle').addEventListener('change', () => {
       const isOn = document.getElementById('auto-apply-toggle').checked;
       document.getElementById('auto-apply-config').classList.toggle('hidden', !isOn);
-      saveSettings(config);
+      saveSettings();
     });
-    document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings(config));
-    document.getElementById('max-applies').addEventListener('change', () => saveSettings(config));
-    document.getElementById('min-score').addEventListener('change', () => saveSettings(config));
+    document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings());
+    document.getElementById('max-applies').addEventListener('change', () => saveSettings());
+    document.getElementById('min-score').addEventListener('change', () => saveSettings());
 
-    function saveSettings(baseConfig) {
+    // Sends only the settings shown in the popup; the background merges them
+    // into the latest stored config so a synced profile is never overwritten.
+    function saveSettings() {
       const scanInterval = Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval-visible').value) || 60));
       const updatedConfig = {
-        ...baseConfig,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         autoApplyKeywords: document.getElementById('auto-apply-keywords').value.trim(),
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval,
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
-        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 40)),
+        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 55)),
       };
       // Update the hidden scan-interval too
       document.getElementById('scan-interval').value = scanInterval;
@@ -369,7 +370,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('save-settings-btn').addEventListener('click', async () => {
       const btn = document.getElementById('save-settings-btn');
       const updatedConfig = {
-        ...config,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
@@ -402,9 +402,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const data = await res.json();
           if (data.profile) {
             // Save profile to extension config
-            const { config: currentConfig } = await chrome.storage.local.get('config');
-            const updatedConfig = { ...currentConfig, profile: data.profile };
-            await chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
+            await chrome.runtime.sendMessage({ action: 'updateConfig', config: { profile: data.profile } });
             btn.textContent = 'Synced!';
             setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
           } else {
