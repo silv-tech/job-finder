@@ -233,6 +233,8 @@ ${fieldsBlock}
    - Never say the applicant has already done THIS post's specific tasks ("the missed-call setup you mentioned is what I've built", "running weekly check-ins is basically what I did") unless the sources describe that exact work. State the real fact, then say how they'd apply it here.
    - When the post asks HOW the applicant does something or what their routine is (onboarding, error-checking, a typical day or week, a workflow the post describes), state only resume facts as facts. Everything else must be phrased as what they WOULD do in this job ("Here's how I'd handle it: ..."), never as their habit or a past result ("when I onboard...", "that's how I kept...", "a typical week for me...", "I've worked with this kind of chain before").
    - If the sources only list a tool, just say they've used it. Don't describe what they did with it ("used Zapier to connect forms and Sheets") and don't stretch one skill into another (Facebook chatbots are not social media posting).
+   - When you cite a past role or project, restate only what the profile says. Don't add methods, reasons, habits, frequencies or results it doesn't state ("staying accurate meant...", "I had to... since every..."). If the closest example doesn't really fit the question, say so and describe how they'd do it here instead.
+   - If the post asks how long or how much they've used a tool, answer directly with what the profile supports (e.g. "Airtable has been one of the integrations in my projects") rather than a disclaimer.
    - Only claim tools, skills and experience that appear in the profile, resume or proof points. If the post names a tool the applicant hasn't used, don't say they have; mention the closest real experience instead.
    - Don't invent availability, working hours, rates or start dates. If the post asks about hours or time zone, state the applicant's location/time zone from the profile and that they're open to the schedule; don't promise specific hours unless the profile says so.
 
@@ -320,7 +322,10 @@ function withSignOff(message: string, name?: string, hiddenInstruction?: string 
     const lines = message.trimEnd().split('\n');
     const last = lines[lines.length - 1]?.trim().replace(/[.,!]$/, '') || '';
     const rest = lines.slice(0, -1).join('\n').trimEnd();
-    return last.toLowerCase() === first.toLowerCase() && rest ? rest : message;
+    const prev = rest.match(/([\p{L}\p{N}]+)\W*$/u)?.[1] || '';
+    const wanted =
+      !!prev && (hiddenInstruction || '').toLowerCase().includes(prev.toLowerCase()) && !/\bname\b/i.test(hiddenInstruction || '');
+    return last.toLowerCase() === first.toLowerCase() && rest && wanted ? rest : message;
   }
   const esc = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const signed = new RegExp(`(?<![\\p{L}\\p{N}_])${esc}(?![\\p{L}\\p{N}_])`, 'iu');
@@ -375,7 +380,7 @@ async function callModel(client: Anthropic, prompt: string) {
 // frequency words, present-tense habits, and volunteered missing tools.
 function riskySentences(text: string): string[] {
   const risky =
-    /\b(regularly|daily|day to day|day-to-day|always|usually|often|a lot|constantly|routinely)\b|\bI (look|follow|test|check|track|keep|pick|make sure|double[- ]check|cross[- ]check|break|prioritize|handle|lean)\b|\b(haven'?t|have not|never) (used|worked)\b|\bI'?ve (used|worked (with|in))\b[^.!?\n]{0,80}\b(in|for|to|when)\b/i;
+    /\b(regularly|daily|day to day|day-to-day|always|usually|often|a lot|constantly|routinely)\b|\bI (look|follow|test|check|track|keep|pick|make sure|double[- ]check|cross[- ]check|break|prioritize|handle|lean)\b|\b(haven'?t|have not|never) (used|worked)\b|\bI'?ve (used|worked (with|in))\b[^.!?\n]{0,80}\b(in|for|to|when)\b|\b(meant|had to|since every|same approach|work I'?ve (already )?done|I type)\b/i;
   return text
     .split(/(?<=[.!?])\s+|\n+/)
     .map((x) => x.trim())
@@ -417,7 +422,7 @@ Find every sentence in the subject, cover_letter and fields that claims somethin
 - saying a task from the post is work they have done, done most, or are used to ("is work I've actually done", "the piece I've done the most")
 - present-tense habit statements about methods not in the facts ("I double check...", "I track...", "I test...", "I explain...")
 - describing what they did with a tool when the facts only list the tool, or stretching a skill (chatbots are not social media posting; phone support is not chat/email support)
-- adding details to real facts: frequency ("daily", "a lot"), numbers, timeframes, before-situations, extra results
+- adding details to real facts: frequency ("daily", "a lot"), numbers, timeframes, before-situations, extra results, or a made-up reason or method attached to a real role ("at Taskapp AI, staying accurate meant everything was filed so anyone could find it")
 - invented stories or anecdotes
 - saying they haven't used a tool, unless the post says that tool is required
 - revealing that a hidden instruction was followed ("as asked")
@@ -477,8 +482,14 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
   if (checked) {
     const urls = (t: string) =>
       (t.match(/https?:\/\/\S+|dlvasolutions\.com\/\S*/g) || []).map((u) => u.replace(/[.,;:!?)"']+$/, '')).sort().join(' ');
-    const caps = (t: string) => new Set(t.match(/\b[A-Z0-9]{3,}\b/g) || []);
-    const lastWord = (t: string) => (t.trim().match(/([\p{L}\p{N}]+)\W*$/u)?.[1] || '').toLowerCase();
+    const hid = (draft.hidden_instructions_found || '').toLowerCase();
+    const caps = (t: string) =>
+      new Set((t.match(/\b(?=[A-Z0-9]*[A-Z])[A-Z0-9]{3,}\b/g) || []).filter((w) => hid.includes(w.toLowerCase())));
+    const firstName = (profile.name || '').trim().split(/\s+/)[0] || '';
+    const dropName = (t: string) =>
+      firstName ? t.trim().replace(new RegExp(`\\n\\s*${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\W*$`, 'i'), '') : t.trim();
+    const lastWord = (t: string) => (dropName(t).match(/([\p{L}\p{N}]+)\W*$/u)?.[1] || '').toLowerCase();
+    const firstWord = (t: string) => (t.trim().match(/^\W*([\p{L}\p{N}]+)/u)?.[1] || '').toLowerCase();
     const beforeTells = findAiTells(draft.cover_letter || '', draft.subject || '');
     const afterTells = findAiTells(checked.cover_letter || '', checked.subject || '');
     const keptLinks = urls(checked.cover_letter || '') === urls(draft.cover_letter || '');
@@ -486,7 +497,8 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
       !draft.hidden_instructions_found ||
       ([...caps(draft.subject || '')].every((w) => (checked.subject || '').includes(w)) &&
         [...caps(draft.cover_letter || '')].every((w) => (checked.cover_letter || '').includes(w)) &&
-        lastWord(checked.cover_letter || '') === lastWord(draft.cover_letter || ''));
+        lastWord(checked.cover_letter || '') === lastWord(draft.cover_letter || '') &&
+        firstWord(checked.cover_letter || '') === firstWord(draft.cover_letter || ''));
     const noNewTells = afterTells.every((t) => beforeTells.includes(t));
     if (checked.subject && keptLinks && keptHidden && noNewTells) {
       // Only the subject and letter come from the fact-check; other fields
@@ -518,7 +530,7 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
     .replace(/(https?:\/\/[^\s]*[^\s.,;:)])\.+(?=[ \t]*(\n|$))/g, '$1')
     // a spaced hyphen used as a dash reads like AI (keep number and day/month ranges)
     .replace(/([^\s\d]) - (?=[^\s\d])/g, (m, a: string, off: number, str: string) =>
-      /\b(mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*$/i.test(str.slice(0, off + 1)) ? m : `${a}, `
+      /\b(?:(?:mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)$/i.test(str.slice(0, off + 1)) ? m : `${a}, `
     );
   const letter = withSignOff(rawLetter, profile.name, draft.hidden_instructions_found);
   const fields: Record<string, string> = {};
