@@ -643,6 +643,25 @@ console.log('[JF] Content script loaded on:', window.location.href);
     return fields;
   }
 
+  // Pick the AI value meant for this input. Exact name/id wins; loose
+  // substring matching only for names/keys of 3+ chars, so an unnamed input
+  // (or one named "q", like a search box) never grabs an unrelated value.
+  function findFieldValue(field, label, values) {
+    const entries = Object.entries(values).filter(([key, value]) => key && typeof value === 'string');
+    const name = (field.name || '').toLowerCase();
+    const id = (field.id || '').toLowerCase();
+
+    for (const [key, value] of entries) {
+      const k = key.toLowerCase();
+      if ((name && k === name) || (id && k === id) || (label && k === label)) return { key, value };
+    }
+    for (const [key, value] of entries) {
+      const k = key.toLowerCase();
+      if ((k.length >= 3 && label.includes(k)) || (name.length >= 3 && k.includes(name))) return { key, value };
+    }
+    return null;
+  }
+
   function fillFormFields(fields, application) {
     const filled = [];
 
@@ -681,14 +700,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
       }
       // Try matching from AI-generated fields
       else if (application.fields) {
-        for (const [fieldKey, value] of Object.entries(application.fields)) {
-          if (field.name === fieldKey || field.id === fieldKey ||
-            label.includes(fieldKey.toLowerCase()) ||
-            fieldKey.toLowerCase().includes(field.name.toLowerCase())) {
-            setInputValue(el, value);
-            filled.push(fieldKey);
-            break;
-          }
+        const match = findFieldValue(field, label, application.fields);
+        if (match) {
+          setInputValue(el, match.value);
+          filled.push(match.key);
         }
       }
     }
