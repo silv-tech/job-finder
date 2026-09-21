@@ -50,6 +50,24 @@ export async function sendOutreachEmail(
   });
 }
 
+function escapeHtml(text: string): string {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeHttpUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function sendAlertEmail(
   to: string,
   jobs: { title: string; company: string; apply_url: string }[]
@@ -57,8 +75,14 @@ export async function sendAlertEmail(
   const client = getResend();
   if (!client) return { success: false, error: 'Resend API key not configured', code: 'CONFIG_ERROR' };
 
+  // Job text comes from third-party job boards: show it as plain text, and only
+  // link to real http(s) URLs.
   const jobList = jobs
-    .map((j) => `<li><strong>${j.title}</strong> at ${j.company} - <a href="${j.apply_url}">Apply</a></li>`)
+    .map((j) => {
+      const url = safeHttpUrl(j.apply_url);
+      const apply = url ? ` - <a href="${escapeHtml(url)}">Apply</a>` : '';
+      return `<li><strong>${escapeHtml(j.title)}</strong> at ${escapeHtml(j.company)}${apply}</li>`;
+    })
     .join('\n');
 
   return deliver(client, {
