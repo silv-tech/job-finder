@@ -2,8 +2,9 @@
 
 import { Job } from '@/lib/types';
 import { getProfile, generateMessage } from '@/lib/profile';
-import { authedFetch } from '@/lib/api-client';
-import { X, Send, Copy, Check, ExternalLink, Mail, Sparkles, Loader2 } from 'lucide-react';
+import { authedFetch, apiError } from '@/lib/api-client';
+import { ROLE_KEYS, ROLE_LABELS } from '@/lib/roles';
+import { X, Send, Copy, Check, ExternalLink, Mail, Sparkles, Loader2, RefreshCw, Wand2 } from 'lucide-react';
 import { useState, useEffect, useEffectEvent, useRef } from 'react';
 
 interface MessageModalProps {
@@ -33,6 +34,8 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
   // AI draft that arrived after the user started editing; offered, not forced.
   const [pendingAi, setPendingAi] = useState<{ subject: string; body: string } | null>(null);
   const editedRef = useRef(false);
+  // Role focus the AI wrote for ('general' = none). Detected on the first draft.
+  const [role, setRole] = useState<string>('');
 
   const generateFirstDraft = useEffectEvent(() => {
     generateWithAI(false);
@@ -49,30 +52,44 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
     editedRef.current = false;
   }
 
-  // `requested` = the user clicked Regenerate, so replace the text. The
-  // automatic first draft only replaces text the user hasn't edited yet.
-  async function generateWithAI(requested: boolean) {
+  // `requested` = the user asked for this (Regenerate / Make it better / new
+  // focus), so replace the text. The automatic first draft only replaces text
+  // the user hasn't edited yet.
+  async function generateWithAI(
+    requested: boolean,
+    options: { role?: string; improve?: { subject: string; body: string }; avoid?: { subject: string; body: string } } = {}
+  ) {
+    setError('');
     try {
       const profile = getProfile();
       const res = await authedFetch('/api/generate-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job, profile }),
+        body: JSON.stringify({ job, profile, ...options }),
       });
 
       if (res.ok) {
         const data = await res.json();
         if (data.subject && data.body) {
+          setRole(data.role || 'general');
           const draft = { subject: data.subject, body: data.body };
           if (requested || !editedRef.current) applyAiDraft(draft);
           else setPendingAi(draft);
         }
+      } else if (requested) {
+        setError(await apiError(res, 'Could not rewrite it. Please try again.'));
       }
     } catch {
-      // AI not available — keep template version
+      // AI not available: keep the current version
+      if (requested) setError('Could not reach the server. Please try again.');
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function rework(options: Parameters<typeof generateWithAI>[1]) {
+    setAiLoading(true);
+    generateWithAI(true, options);
   }
 
   function handleCopy() {
@@ -151,19 +168,46 @@ export default function MessageModal({ job, onClose }: MessageModalProps) {
                 <Loader2 size={14} className="animate-spin" /> Generating with AI...
               </span>
             )}
-            <button
-              onClick={() => {
-                setAiLoading(true);
-                generateWithAI(true);
-              }}
-              disabled={aiLoading}
-              className="p-2 hover:bg-indigo-100 text-indigo-500 rounded-lg transition-colors disabled:opacity-50"
-              title="Regenerate with AI"
-            >
-              <Sparkles size={18} />
-            </button>
             <button onClick={onClose} className="p-2 hover:bg-white/80 rounded-lg transition-colors">
               <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* AI controls */}
+        <div className="flex flex-wrap items-center gap-2 px-5 pt-4">
+          <label className="text-xs font-semibold text-gray-500 uppercase">Focus</label>
+          <select
+            value={role}
+            onChange={(e) => {
+              setRole(e.target.value);
+              rework({ role: e.target.value });
+            }}
+            disabled={aiLoading || !role}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white disabled:opacity-60"
+          >
+            {!role && <option value="">Detecting...</option>}
+            <option value="general">General</option>
+            {ROLE_KEYS.map((key) => (
+              <option key={key} value={key}>
+                {ROLE_LABELS[key]}
+              </option>
+            ))}
+          </select>
+          <div className="flex gap-2 ml-auto">
+            <button
+              onClick={() => rework({ role: role || 'general', avoid: { subject, body } })}
+              disabled={aiLoading}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-1.5 rounded-lg"
+            >
+              <RefreshCw size={14} /> Regenerate
+            </button>
+            <button
+              onClick={() => rework({ role: role || 'general', improve: { subject, body } })}
+              disabled={aiLoading}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-1.5 rounded-lg"
+            >
+              <Wand2 size={14} /> Make it better
             </button>
           </div>
         </div>

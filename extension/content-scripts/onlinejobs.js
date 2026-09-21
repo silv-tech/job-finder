@@ -160,7 +160,13 @@ console.log('[JF] Content script loaded on:', window.location.href);
     return { success: false, error: 'Send button not found' };
   }
 
+  // Set once an auto-fill starts on this page, so the "Application Form
+  // Detected" prompt (which appears ~1.5s+ after load) never replaces the
+  // review popup.
+  let fillStarted = false;
+
   async function handleFillApplyForm(job) {
+    fillStarted = true;
     await sleep(1000);
 
     const formFields = detectFormFields();
@@ -229,82 +235,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     const reviewBeforeSend = config?.reviewBeforeSend !== false; // default true
 
     if (reviewBeforeSend) {
-      // Show review popup with subject, message preview, and send button
-      const subjectText = application.subject || '';
-      const messageText = application.cover_letter || '';
-
-      showOverlay(`
-        <div class="jf-panel">
-          <div class="jf-panel-header">
-            <h2>Review Application</h2>
-            <button id="jf-close" class="jf-close-btn">&times;</button>
-          </div>
-          <div class="jf-panel-body">
-            <div style="margin-bottom:12px;">
-              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Job</div>
-              <div style="font-weight:600;color:#111827;">${escapeHtml(job.title)}</div>
-              <div style="font-size:12px;color:#6b7280;">${escapeHtml(job.company || '')}</div>
-            </div>
-            <div style="margin-bottom:12px;">
-              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Subject</div>
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:13px;">${escapeHtml(subjectText)}</div>
-            </div>
-            <div style="margin-bottom:12px;">
-              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Message</div>
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5;max-height:250px;overflow-y:auto;">${escapeHtml(messageText)}</div>
-            </div>
-            <div style="margin-bottom:8px;">
-              <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Apply Points</div>
-              <div style="font-size:13px;">2 points</div>
-            </div>
-            ${application.hidden_instructions_found ? `
-            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;">
-              Hidden instruction found: ${escapeHtml(application.hidden_instructions_found)}
-            </div>` : ''}
-          </div>
-          <div class="jf-panel-footer" style="flex-direction:column;gap:8px;">
-            <button id="jf-send" class="jf-btn jf-btn-apply" style="width:100%;justify-content:center;padding:12px 16px;font-size:14px;">Send Application</button>
-            <button id="jf-close" class="jf-btn jf-btn-save" style="width:100%;justify-content:center;">Cancel</button>
-          </div>
-        </div>
-      `);
-
-      overlay.querySelector('#jf-send')?.addEventListener('click', async () => {
-        const sendBtnEl = overlay.querySelector('#jf-send');
-        sendBtnEl.textContent = 'Sending...';
-        sendBtnEl.disabled = true;
-
-        if (sendBtn) {
-          sendBtn.click();
-          // Only now is it really applied
-          await chrome.runtime.sendMessage({ action: 'saveJob', job });
-          await chrome.runtime.sendMessage({ action: 'logApply', job });
-
-          showOverlay(`
-            <div class="jf-panel jf-panel-small">
-              <div class="jf-panel-header">
-                <h2>Application Sent!</h2>
-                <button id="jf-close" class="jf-close-btn">&times;</button>
-              </div>
-              <div class="jf-panel-body">
-                <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
-              </div>
-            </div>
-          `);
-        } else {
-          showOverlay(`
-            <div class="jf-panel jf-panel-small">
-              <div class="jf-panel-header">
-                <h2>Send Button Not Found</h2>
-                <button id="jf-close" class="jf-close-btn">&times;</button>
-              </div>
-              <div class="jf-panel-body">
-                <p class="jf-error">Could not find the Send Email button. Please click it manually.</p>
-              </div>
-            </div>
-          `);
-        }
-      });
+      showReviewPanel({ job, formFields, application, sendBtn });
 
       // Filled, but the user still has to review and click Send
       return { success: true, pending_review: true, filled: filled.length };
@@ -333,6 +264,152 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
 
     return { success: true, sent: true, filled: filled.length };
+  }
+
+  // Review popup: shows the detected role focus (switchable), the subject and
+  // message, and lets the user regenerate or improve before sending. Every
+  // rewrite refills the form on the page.
+  function findFilledEl(value, selector) {
+    if (!value) return null;
+    return [...document.querySelectorAll(selector)].find((el) => el.value === value) || null;
+  }
+
+  function showReviewPanel(ctx) {
+    const { job, formFields, sendBtn } = ctx;
+    const app = ctx.application;
+    ctx.messageEl = findFilledEl(app.cover_letter, 'textarea');
+    ctx.subjectEl = findFilledEl(app.subject, 'input[type="text"], input:not([type])');
+
+    const roles = Array.isArray(app.roles) ? app.roles : [];
+    const roleOptions = [`<option value="general" ${!app.role ? 'selected' : ''}>General</option>`]
+      .concat(roles.map((r) => `<option value="${escapeHtml(r.key)}" ${r.key === app.role ? 'selected' : ''}>${escapeHtml(r.label)}</option>`))
+      .join('');
+    const label = 'font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;';
+    const secondaryBtn = 'flex:1;justify-content:center;padding:8px 10px;font-size:12px;';
+
+    showOverlay(`
+      <div class="jf-panel">
+        <div class="jf-panel-header">
+          <h2>Review Application</h2>
+          <button id="jf-close" class="jf-close-btn">&times;</button>
+        </div>
+        <div class="jf-panel-body">
+          <div style="margin-bottom:12px;">
+            <div style="${label}">Job</div>
+            <div style="font-weight:600;color:#111827;">${escapeHtml(job.title)}</div>
+            <div style="font-size:12px;color:#6b7280;">${escapeHtml(job.company || '')}</div>
+          </div>
+          <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+            <div style="${label}margin-bottom:0;">Focus</div>
+            <select id="jf-role" style="flex:1;border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;font-size:13px;background:#fff;color:#111827;">${roleOptions}</select>
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="${label}">Subject</div>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:13px;">${escapeHtml(app.subject || '')}</div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="${label}">Message</div>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5;max-height:250px;overflow-y:auto;">${escapeHtml(app.cover_letter || '')}</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button id="jf-regen" class="jf-btn jf-btn-save" style="${secondaryBtn}">Regenerate</button>
+            <button id="jf-better" class="jf-btn jf-btn-save" style="${secondaryBtn}">Make it better</button>
+          </div>
+          <p id="jf-review-status" class="jf-status" style="margin:0 0 8px;min-height:16px;"></p>
+          <div style="margin-bottom:8px;">
+            <div style="${label}">Apply Points</div>
+            <div style="font-size:13px;">2 points</div>
+          </div>
+          ${app.hidden_instructions_found ? `
+          <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;">
+            Hidden instruction found: ${escapeHtml(app.hidden_instructions_found)}
+          </div>` : ''}
+        </div>
+        <div class="jf-panel-footer" style="flex-direction:column;gap:8px;">
+          <button id="jf-send" class="jf-btn jf-btn-apply" style="width:100%;justify-content:center;padding:12px 16px;font-size:14px;">Send Application</button>
+          <button id="jf-close" class="jf-btn jf-btn-save" style="width:100%;justify-content:center;">Cancel</button>
+        </div>
+      </div>
+    `);
+
+    const status = overlay.querySelector('#jf-review-status');
+    const controls = ['#jf-role', '#jf-regen', '#jf-better', '#jf-send'].map((sel) => overlay.querySelector(sel));
+
+    // Current text on the page, so "Make it better" keeps the user's own edits.
+    const currentDraft = () => ({
+      subject: ctx.subjectEl?.value ?? app.subject ?? '',
+      cover_letter: ctx.messageEl?.value ?? app.cover_letter ?? '',
+    });
+
+    async function rework(options, busyText) {
+      controls.forEach((el) => el && (el.disabled = true));
+      status.textContent = busyText;
+      status.style.color = '';
+      let next;
+      try {
+        next = await chrome.runtime.sendMessage({ action: 'generateApplication', job, formFields, options });
+      } catch (err) {
+        next = { error: err?.message || 'Could not reach the extension' };
+      }
+      if (!next || next.error || next.manual_required) {
+        controls.forEach((el) => el && (el.disabled = false));
+        status.textContent = next?.error || 'Could not rewrite it, please try again.';
+        status.style.color = '#b91c1c';
+        return;
+      }
+      fillFormFields(formFields, next);
+      ctx.application = next;
+      showReviewPanel(ctx);
+    }
+
+    const roleSelect = overlay.querySelector('#jf-role');
+    roleSelect?.addEventListener('change', () => {
+      const text = roleSelect.options[roleSelect.selectedIndex]?.text || 'this role';
+      rework({ role: roleSelect.value }, `Rewriting it for ${text}...`);
+    });
+    overlay.querySelector('#jf-regen')?.addEventListener('click', () => {
+      rework({ role: app.role || 'general', avoid: currentDraft() }, 'Writing a fresh version...');
+    });
+    overlay.querySelector('#jf-better')?.addEventListener('click', () => {
+      rework({ role: app.role || 'general', improve: currentDraft() }, 'Making it better...');
+    });
+
+    overlay.querySelector('#jf-send')?.addEventListener('click', async () => {
+      const sendBtnEl = overlay.querySelector('#jf-send');
+      sendBtnEl.textContent = 'Sending...';
+      sendBtnEl.disabled = true;
+
+      if (sendBtn) {
+        sendBtn.click();
+        // Only now is it really applied
+        await chrome.runtime.sendMessage({ action: 'saveJob', job });
+        await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+        showOverlay(`
+          <div class="jf-panel jf-panel-small">
+            <div class="jf-panel-header">
+              <h2>Application Sent!</h2>
+              <button id="jf-close" class="jf-close-btn">&times;</button>
+            </div>
+            <div class="jf-panel-body">
+              <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+            </div>
+          </div>
+        `);
+      } else {
+        showOverlay(`
+          <div class="jf-panel jf-panel-small">
+            <div class="jf-panel-header">
+              <h2>Send Button Not Found</h2>
+              <button id="jf-close" class="jf-close-btn">&times;</button>
+            </div>
+            <div class="jf-panel-body">
+              <p class="jf-error">Could not find the Send Email button. Please click it manually.</p>
+            </div>
+          </div>
+        `);
+      }
+    });
   }
 
   async function checkAuthThen(fn) {
@@ -1228,67 +1305,25 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
 
     if (formFields.length > 0) {
-      await fillAndSubmit(job, formFields);
+      await fillAndSubmit(job);
     } else {
       // No form found — try to find any textarea on the page (some sites have inline apply)
       const textareas = document.querySelectorAll('textarea');
       if (textareas.length > 0) {
-        await fillAndSubmit(job, detectFormFields());
+        await fillAndSubmit(job);
       } else {
+        // Nothing was sent, so don't record it as applied
         updateApplyStatus('Apply button clicked! Fill in any remaining details manually.');
-        await chrome.runtime.sendMessage({ action: 'saveJob', job });
-        await chrome.runtime.sendMessage({ action: 'logApply', job });
       }
     }
   }
 
-  async function fillAndSubmit(job, formFields) {
+  // Uses the same fill + review popup as every other apply path, so the job is
+  // only recorded as applied after it's actually sent.
+  async function fillAndSubmit(job) {
     updateApplyStatus('Generating AI application...');
-
-    const application = await chrome.runtime.sendMessage({
-      action: 'generateApplication',
-      job,
-      formFields,
-    });
-
-    if (application.error) {
-      updateApplyStatus(`AI Error: ${application.error}`);
-      return;
-    }
-
-    updateApplyStatus('Filling form fields...');
-    const filled = fillFormFields(formFields, application);
-
-    updateApplyStatus(`Filled ${filled.length} fields. Review before submitting.`);
-
-    await chrome.runtime.sendMessage({ action: 'saveJob', job });
-    await chrome.runtime.sendMessage({ action: 'logApply', job });
-
-    const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
-    if (submitBtn) {
-      showOverlay(`
-        <div class="jf-panel jf-panel-small">
-          <div class="jf-panel-header">
-            <h2>Application Ready</h2>
-            <button id="jf-close" class="jf-close-btn">&times;</button>
-          </div>
-          <div class="jf-panel-body">
-            <p class="jf-success">Form filled with AI-generated application!</p>
-            <p>Filled ${filled.length} fields for <strong>${escapeHtml(job.title)}</strong></p>
-            <p class="jf-status">Review the form below, then submit when ready.</p>
-          </div>
-          <div class="jf-panel-footer">
-            <button id="jf-submit" class="jf-btn jf-btn-apply">Submit Application</button>
-            <button id="jf-close" class="jf-btn jf-btn-save">Cancel</button>
-          </div>
-        </div>
-      `);
-
-      overlay.querySelector('#jf-submit')?.addEventListener('click', () => {
-        submitBtn.click();
-        removeOverlay();
-      });
-    }
+    const result = await handleFillApplyForm(job);
+    if (result?.error) updateApplyStatus(`AI Error: ${result.error}`);
   }
 
   // ========== HELPERS ==========
@@ -1381,6 +1416,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
             source: 'onlinejobs_ph',
           };
         }
+
+        // An auto-fill already started here (Quick Apply / Auto-Apply / review
+        // tabs): don't cover its review popup with this prompt.
+        if (fillStarted) return;
 
         showOverlay(`
           <div class="jf-panel jf-panel-small">

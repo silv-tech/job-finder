@@ -52,7 +52,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const role: RoleKey | null = isRoleKey(body.role) ? body.role : detectRole(job);
+    // 'general' = the user chose no special focus; otherwise their choice or detected
+    const role: RoleKey | null =
+      body.role === 'general' ? null : isRoleKey(body.role) ? body.role : detectRole(job);
     const roleInfo = {
       role,
       role_label: role ? ROLE_LABELS[role] : 'General',

@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const job = body.job || {};
-    const role: RoleKey | null = isRoleKey(body.role) ? body.role : detectRole(job);
+    // 'general' = the user chose no special focus; otherwise their choice or detected
+    const role: RoleKey | null =
+      body.role === 'general' ? null : isRoleKey(body.role) ? body.role : detectRole(job);
     const profile = await loadWriterProfile(auth.userId, body.profile || {});
 
     const application = await writeApplication(client, job, profile, {
