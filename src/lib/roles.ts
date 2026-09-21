@@ -75,22 +75,22 @@ export function isRoleKey(value: unknown): value is RoleKey {
 export const ROLE_PLAYBOOKS: Record<RoleKey, string> = {
   management: `This is a MANAGEMENT role. The person hiring wants someone who takes things off their plate and makes a team run without being chased.
 - Lead with the applicant's real leadership: how many people they managed, what they were responsible for, and a result they drove (use the real numbers from the examples, like team size or revenue growth).
-- Show HOW they manage, briefly and concretely: how they keep people accountable, set up processes, track KPIs, hire or train, handle problems. Pick what the post asks for.
-- Mirror the post's situation: if they mention a growing team, messy processes, or missed deadlines, say how the applicant has handled that before.
+- Show HOW they would manage this team, briefly and concretely (accountability, processes, KPIs, hiring or training, handling problems), picking what the post asks for. Only state methods as past habits if the sources describe them.
+- If the post mentions a growing team, messy processes, or missed deadlines, give one real fact from the sources that fits, then say how the applicant would handle it here.
 - Sound like a calm operator, not a cheerleader. No "natural leader", no "people person".`,
   automation: `This is an AUTOMATION role. The person hiring wants proof the applicant can actually build and keep automations running, not someone who "knows Zapier".
 - Name the exact tools from the post that the applicant really has used, and one concrete thing they built: what it did, the tools, and what it saved or made possible.
 - If the post describes a specific workflow or problem, say briefly how the applicant would approach it (one or two sentences, practical, not a lecture).
-- Mention reliability if relevant: testing, error handling, monitoring, documenting so the client isn't stuck.
+- If relevant, say how they WOULD keep this client's automations reliable (testing, error alerts, documentation). Only mention past safeguards the sources describe (e.g. ForgeAI's).
 - Keep jargon light. The reader may not be technical.`,
   general_va: `This is a GENERAL VIRTUAL ASSISTANT role. The person hiring wants someone reliable they can hand varied tasks to and trust to follow through with little supervision.
-- Lead with the range of tasks the applicant has handled that match the post, and one example of being dependable or proactive.
+- Lead with the real tasks from the sources that are closest to what the post needs, and one real example of being dependable (for example, being the main client contact while hitting deadlines).
 - Show clear communication and responsiveness, and mention time zone availability if the post cares about hours.
 - Name the tools from the post the applicant actually uses.
 - Warm and easy to work with, but not gushing.`,
   admin: `This is an ADMIN role. The person hiring wants accuracy, organization, and someone who follows procedures without needing reminders.
-- Lead with real admin experience that matches the post: data work, documentation, scheduling, inbox, records, CRMs or spreadsheets.
-- Show care for detail with a concrete example (e.g. keeping data accurate at volume), not the phrase "detail-oriented".
+- Lead with the real admin-type experience from the sources that is closest to the post (data accuracy, records, documentation, client coordination), and the tools from the post they have actually used.
+- Show care for detail with a real example from the sources (e.g. keeping data accurate across concurrent projects), not the phrase "detail-oriented".
 - Name the specific tools from the post the applicant has used.
 - Short, tidy, and precise. The message itself should look organized.`,
 };
