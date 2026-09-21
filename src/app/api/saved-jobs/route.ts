@@ -23,6 +23,24 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// Pipeline order. Rejected/accepted are final outcomes and are never overridden
+// by a re-save.
+const STATUS_RANK: Record<string, number> = {
+  new: 0,
+  interested: 1,
+  applied: 2,
+  messaged: 3,
+  interviewing: 4,
+  rejected: 5,
+  accepted: 5,
+};
+
+function pickStatus(current: string | undefined, requested: string | undefined): string {
+  const next = requested && requested in STATUS_RANK ? requested : 'interested';
+  if (!current) return next;
+  return (STATUS_RANK[next] ?? 0) > (STATUS_RANK[current] ?? 0) ? next : current;
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof NextResponse) return auth;
@@ -30,6 +48,16 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = getServiceClient();
     const body = await req.json();
+
+    // Saving a job again must never move its status backwards (e.g. an
+    // "interviewing" job re-saved from search would reset to "interested").
+    const { data: existing } = await supabase
+      .from('saved_jobs')
+      .select('status')
+      .eq('user_id', auth.userId)
+      .eq('source_id', body.source_id)
+      .maybeSingle();
+    const status = pickStatus(existing?.status, body.status);
 
     const { data, error } = await supabase
       .from('saved_jobs')
@@ -51,7 +79,7 @@ export async function POST(req: NextRequest) {
           apply_url: body.apply_url,
           contact_email: body.contact_email,
           posted_at: body.posted_at,
-          status: body.status || 'interested',
+          status,
           notes: body.notes,
         },
         { onConflict: 'user_id,source_id' }

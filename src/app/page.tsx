@@ -14,6 +14,11 @@ import { Search, Loader2, SlidersHorizontal, Bookmark, User, X, Check, LogOut } 
 
 type Tab = 'search' | 'saved' | 'alerts' | 'profile';
 
+// Same key for a search result and its saved row, so bookmarks match.
+function savedKey(source: string, sourceId: string) {
+  return `${source}:${sourceId}`;
+}
+
 const QUICK_SEARCHES = [
   'AI automation specialist remote',
   'AI implementation consultant',
@@ -44,14 +49,20 @@ export default function Home() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
     authedFetch('/api/saved-jobs')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        const saved = data.jobs || [];
-        setSavedIds(new Set(saved.map((j: Job) => j.source_id || j.id)));
+        if (cancelled || !data) return;
+        const saved: Job[] = data.jobs || [];
+        setSavedIds(new Set(saved.map((j) => savedKey(j.source, j.source_id || j.id))));
       })
       .catch(() => {});
-  }, [savedRefresh]);
+    return () => {
+      cancelled = true;
+    };
+  }, [savedRefresh, user]);
 
   function toggleFilter(filter: string) {
     setSelectedFilters((prev) => {
@@ -155,9 +166,17 @@ export default function Home() {
   }
 
   async function handleSaveJob(job: Job) {
-    setSavedIds((prev) => new Set([...prev, job.id]));
+    const key = savedKey(job.source, job.source_id || job.id);
+    if (savedIds.has(key)) return;
+    setSavedIds((prev) => new Set([...prev, key]));
+    const unsave = () =>
+      setSavedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     try {
-      await authedFetch('/api/saved-jobs', {
+      const res = await authedFetch('/api/saved-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -176,12 +195,15 @@ export default function Home() {
           apply_url: job.apply_url,
           contact_email: job.contact_email,
           posted_at: job.posted_at,
-          status: 'interested',
         }),
       });
+      if (!res.ok) {
+        unsave();
+        return;
+      }
       setSavedRefresh((r) => r + 1);
     } catch {
-      // Supabase not configured — job still appears saved in UI
+      unsave();
     }
   }
 
@@ -379,7 +401,7 @@ export default function Home() {
                       job={job}
                       onSave={handleSaveJob}
                       onMessage={setMessageJob}
-                      isSaved={savedIds.has(job.id)}
+                      isSaved={savedIds.has(savedKey(job.source, job.source_id || job.id))}
                     />
                   ))}
                 </div>
