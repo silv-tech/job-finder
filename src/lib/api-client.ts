@@ -18,3 +18,16 @@ export async function authedFetch(
   }
   return fetch(input, { ...init, headers });
 }
+
+// The error message from a failed API response, or a fallback. fetch() only
+// throws on network failure, so callers must check res.ok themselves.
+export async function apiError(res: Response, fallback = 'Something went wrong. Please try again.'): Promise<string> {
+  if (res.status === 401) return 'Your session expired. Please log in again.';
+  try {
+    const data = await res.json();
+    if (typeof data?.error === 'string' && data.error) return data.error;
+  } catch {
+    // not JSON
+  }
+  return fallback;
+}

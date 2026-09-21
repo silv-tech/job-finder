@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Alert } from '@/lib/types';
-import { authedFetch } from '@/lib/api-client';
+import { authedFetch, apiError } from '@/lib/api-client';
 import { Bell, Plus, Trash2, Loader2 } from 'lucide-react';
 
 export default function AlertsPanel() {
@@ -11,6 +11,7 @@ export default function AlertsPanel() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchAlerts();
@@ -19,10 +20,14 @@ export default function AlertsPanel() {
   async function fetchAlerts() {
     try {
       const res = await authedFetch('/api/alerts');
+      if (!res.ok) {
+        setError(await apiError(res, 'Could not load your alerts.'));
+        return;
+      }
       const data = await res.json();
       setAlerts(data.alerts || []);
     } catch {
-      setAlerts([]);
+      setError('Could not reach the server. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -30,9 +35,13 @@ export default function AlertsPanel() {
 
   async function handleAdd() {
     if (!keywords.trim() || !email.trim()) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
 
     setSaving(true);
+    setError('');
     try {
       const res = await authedFetch('/api/alerts', {
         method: 'POST',
@@ -42,27 +51,34 @@ export default function AlertsPanel() {
           email,
         }),
       });
-      if (res.ok) {
-        await fetchAlerts();
-        setKeywords('');
+      if (!res.ok) {
+        setError(await apiError(res, 'Could not add the alert.'));
+        return;
       }
+      await fetchAlerts();
+      setKeywords('');
     } catch {
-      // Supabase not configured — silently fail
+      setError('Could not reach the server. The alert was not added.');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleRemove(id: string) {
+    setError('');
     try {
-      await authedFetch('/api/alerts', {
+      const res = await authedFetch('/api/alerts', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
+      if (!res.ok) {
+        setError(await apiError(res, 'Could not delete the alert.'));
+        return;
+      }
       setAlerts((prev) => prev.filter((a) => a.id !== id));
     } catch {
-      // Supabase not configured
+      setError('Could not reach the server. The alert was not deleted.');
     }
   }
 
@@ -100,6 +116,10 @@ export default function AlertsPanel() {
           {saving ? 'Adding...' : 'Add Alert'}
         </button>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-3">{error}</p>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-gray-400 py-4">

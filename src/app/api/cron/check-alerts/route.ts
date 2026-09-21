@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { searchJobs } from '@/lib/jobs-api';
-import { sendAlertEmail } from '@/lib/email';
+import { sendAlertEmail, isEmailConfigured } from '@/lib/email';
 
 // This endpoint is called by Vercel Cron (see vercel.json)
 export const dynamic = 'force-dynamic';
@@ -15,6 +15,12 @@ export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Without email there's no way to deliver alerts, so don't spend job-search
+  // quota. Starts working on its own once Resend is configured.
+  if (!isEmailConfigured()) {
+    return NextResponse.json({ message: 'Email not configured, skipping alerts' });
   }
 
   let supabase;
@@ -34,6 +40,7 @@ export async function GET(req: NextRequest) {
   }
 
   let totalSent = 0;
+  let totalFailed = 0;
 
   for (const alert of alerts) {
     // Never let one malformed or failing alert abort the whole run.
@@ -49,10 +56,18 @@ export async function GET(req: NextRequest) {
         : jobs.slice(0, 10);
 
       if (newJobs.length > 0) {
-        await sendAlertEmail(
+        const result = await sendAlertEmail(
           alert.email,
           newJobs.map((j) => ({ title: j.title, company: j.company, apply_url: j.apply_url }))
         );
+
+        // Only move last_sent_at forward when the email really went out,
+        // otherwise these jobs would never be alerted.
+        if (!result.success) {
+          console.error('Alert email failed:', alert.id, result.error);
+          totalFailed++;
+          continue;
+        }
 
         await supabase
           .from('alerts')
@@ -66,5 +81,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ message: `Checked ${alerts.length} alerts, sent ${totalSent} emails` });
+  return NextResponse.json({ message: `Checked ${alerts.length} alerts, sent ${totalSent} emails, ${totalFailed} failed` });
 }

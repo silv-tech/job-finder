@@ -18,47 +18,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
 
-    try {
-      const res = await fetch(`${apiUrl}/api/auth/session`, {
-        headers: { 'Authorization': `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        clearTimeout(loadingTimeout);
-        loadingView.classList.add('hidden');
-        showMainView(userEmail || 'User', config);
-        return;
+    // The background worker is the only place that refreshes tokens (refresh
+    // tokens are single-use, so two refreshers would log the user out).
+    // Only log out when the login is really rejected; on a network or server
+    // problem keep the user signed in (the status bar says the server is
+    // unreachable) so background auto-apply keeps its tokens.
+    let loggedOut = false;
+    let reachable = false;
+    // Second pass forces a refresh in case the token was revoked early.
+    for (const force of [false, true]) {
+      const auth = await chrome.runtime.sendMessage({ action: 'refreshAuth', force }).catch(() => null);
+      if (auth?.status === 'rejected' || auth?.status === 'signed_out') {
+        loggedOut = true;
+        break;
       }
-    } catch {}
-
-    // Token expired — try to refresh it
-    const { authRefreshToken } = await chrome.storage.local.get('authRefreshToken');
-    if (authRefreshToken) {
+      if (!auth?.ok) break; // unavailable: can't tell, stay logged in
       try {
-        const supabaseRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
-        if (supabaseRes.ok) {
-          const { url: supabaseUrl, anonKey } = await supabaseRes.json();
-          const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
-            body: JSON.stringify({ refresh_token: authRefreshToken }),
-          });
-          const refreshData = await refreshRes.json();
-          if (refreshRes.ok && refreshData.access_token) {
-            await chrome.storage.local.set({
-              authToken: refreshData.access_token,
-              authRefreshToken: refreshData.refresh_token,
-              userEmail: refreshData.user?.email || userEmail,
-            });
-            clearTimeout(loadingTimeout);
-            loadingView.classList.add('hidden');
-            showMainView(refreshData.user?.email || userEmail || 'User', config);
-            return;
-          }
+        const { authToken: freshToken } = await chrome.storage.local.get('authToken');
+        const res = await fetch(`${apiUrl}/api/auth/session`, {
+          headers: { 'Authorization': `Bearer ${freshToken}` },
+        });
+        if (res.ok) {
+          reachable = true;
+          break;
         }
-      } catch {}
+        if (res.status !== 401) break; // server error: stay logged in
+        if (force) loggedOut = true; // still 401 after a fresh token
+      } catch {
+        break; // network error: stay logged in
+      }
     }
 
-    // Refresh failed — clear and show login
+    if (!loggedOut) {
+      const { userEmail: freshEmail } = await chrome.storage.local.get('userEmail');
+      clearTimeout(loadingTimeout);
+      loadingView.classList.add('hidden');
+      showMainView(freshEmail || userEmail || 'User', config);
+      if (!reachable) {
+        const statusBar = document.getElementById('status-bar');
+        statusBar.textContent = "Can't reach the server right now. You're still logged in.";
+        statusBar.className = 'status-bar status-disconnected';
+      }
+      return;
+    }
+
+    // Login really rejected: clear it and show the login screen
     await chrome.storage.local.remove(['authToken', 'userEmail', 'authRefreshToken']);
   }
 
@@ -220,28 +224,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
     // Auto-save toggles when changed
-    document.getElementById('review-toggle').addEventListener('change', () => saveSettings(config));
-    document.getElementById('auto-apply-keywords').addEventListener('change', () => saveSettings(config));
+    document.getElementById('review-toggle').addEventListener('change', () => saveSettings());
+    document.getElementById('auto-apply-keywords').addEventListener('change', () => saveSettings());
     document.getElementById('auto-apply-toggle').addEventListener('change', () => {
       const isOn = document.getElementById('auto-apply-toggle').checked;
       document.getElementById('auto-apply-config').classList.toggle('hidden', !isOn);
-      saveSettings(config);
+      saveSettings();
     });
-    document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings(config));
-    document.getElementById('max-applies').addEventListener('change', () => saveSettings(config));
-    document.getElementById('min-score').addEventListener('change', () => saveSettings(config));
+    document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings());
+    document.getElementById('max-applies').addEventListener('change', () => saveSettings());
+    document.getElementById('min-score').addEventListener('change', () => saveSettings());
 
-    function saveSettings(baseConfig) {
+    // Sends only the settings shown in the popup; the background merges them
+    // into the latest stored config so a synced profile is never overwritten.
+    function saveSettings() {
       const scanInterval = Math.max(5, Math.min(1440, parseInt(document.getElementById('scan-interval-visible').value) || 60));
       const updatedConfig = {
-        ...baseConfig,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         autoApplyKeywords: document.getElementById('auto-apply-keywords').value.trim(),
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval,
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
-        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 40)),
+        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 55)),
       };
       // Update the hidden scan-interval too
       document.getElementById('scan-interval').value = scanInterval;
@@ -389,7 +394,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('save-settings-btn').addEventListener('click', async () => {
       const btn = document.getElementById('save-settings-btn');
       const updatedConfig = {
-        ...config,
         reviewBeforeSend: document.getElementById('review-toggle').checked,
         autoApply: document.getElementById('auto-apply-toggle').checked,
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
@@ -422,9 +426,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const data = await res.json();
           if (data.profile) {
             // Save profile to extension config
-            const { config: currentConfig } = await chrome.storage.local.get('config');
-            const updatedConfig = { ...currentConfig, profile: data.profile };
-            await chrome.runtime.sendMessage({ action: 'updateConfig', config: updatedConfig });
+            await chrome.runtime.sendMessage({ action: 'updateConfig', config: { profile: data.profile } });
             btn.textContent = 'Synced!';
             setTimeout(() => { btn.textContent = 'Sync Profile from App'; }, 2000);
           } else {
@@ -467,7 +469,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error('Not OK');
       }
     } catch {
-      statusBar.textContent = 'Not connected, start the app first';
+      statusBar.textContent = "Can't reach the server right now. You're still logged in.";
       statusBar.className = 'status-bar status-disconnected';
     }
   }

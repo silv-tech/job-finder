@@ -10,28 +10,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // Listen for messages from background/popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'scanJobs') {
-      checkAuthThen(() => scanAndMatch()).then(sendResponse);
-      return true;
-    }
-    if (message.action === 'autoScan') {
-      checkAuthThen(() => scanAndMatch()).then(() => {});
-      return true;
-    }
-    if (message.action === 'applyToJob') {
-      checkAuthThen(() => applyToJob(message.job, message.application)).then(sendResponse);
+      checkAuthThen(() => scanAndMatch()).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'clickApplyButton') {
-      handleClickApplyButton().then(sendResponse);
+      handleClickApplyButton().then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'fillApplyForm') {
-      handleFillApplyForm(message.job).then(sendResponse);
-      return true;
-    }
-    if (message.action === 'scanAllPages') {
-      // This is now handled by background script navigating the tab
-      checkAuthThen(() => scanAllPagesViaNav(message.maxPages || 5)).then(sendResponse);
+      handleFillApplyForm(message.job).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'scrapeAndReport') {
@@ -48,12 +35,8 @@ console.log('[JF] Content script loaded on:', window.location.href);
       sendResponse({ jobs, url: window.location.href, pageLinks });
       return true;
     }
-    if (message.action === 'scrapeCurrentPage') {
-      sendResponse({ jobs: scrapeJobListings() });
-      return true;
-    }
     if (message.action === 'autoFillAndSend') {
-      handleAutoFillAndSend(message.job).then(sendResponse);
+      handleAutoFillAndSend(message.job).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
     }
     if (message.action === 'showScanProgress') {
@@ -232,9 +215,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
       filled.push('apply_points');
     }
 
-    // Save job
-    await chrome.runtime.sendMessage({ action: 'saveJob', job });
-
     // Find the Send Email button
     let sendBtn = null;
     document.querySelectorAll('a, button, input[type="submit"]').forEach((btn) => {
@@ -296,6 +276,8 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
         if (sendBtn) {
           sendBtn.click();
+          // Only now is it really applied
+          await chrome.runtime.sendMessage({ action: 'saveJob', job });
           await chrome.runtime.sendMessage({ action: 'logApply', job });
 
           showOverlay(`
@@ -323,29 +305,34 @@ console.log('[JF] Content script loaded on:', window.location.href);
           `);
         }
       });
+
+      // Filled, but the user still has to review and click Send
+      return { success: true, pending_review: true, filled: filled.length };
     } else {
       // Auto-send without review
-      if (sendBtn) {
-        await sleep(500);
-        sendBtn.click();
-        await chrome.runtime.sendMessage({ action: 'logApply', job });
-
-        showOverlay(`
-          <div class="jf-panel jf-panel-small">
-            <div class="jf-panel-header">
-              <h2>Application Sent!</h2>
-              <button id="jf-close" class="jf-close-btn">&times;</button>
-            </div>
-            <div class="jf-panel-body">
-              <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
-              <p>Filled ${filled.length} fields and submitted automatically.</p>
-            </div>
-          </div>
-        `);
+      if (!sendBtn) {
+        return { success: false, error: 'Send button not found', filled: filled.length };
       }
+      await sleep(500);
+      sendBtn.click();
+      await chrome.runtime.sendMessage({ action: 'saveJob', job });
+      await chrome.runtime.sendMessage({ action: 'logApply', job });
+
+      showOverlay(`
+        <div class="jf-panel jf-panel-small">
+          <div class="jf-panel-header">
+            <h2>Application Sent!</h2>
+            <button id="jf-close" class="jf-close-btn">&times;</button>
+          </div>
+          <div class="jf-panel-body">
+            <p class="jf-success">Successfully applied to <strong>${escapeHtml(job.title)}</strong></p>
+            <p>Filled ${filled.length} fields and submitted automatically.</p>
+          </div>
+        </div>
+      `);
     }
 
-    return { success: true, filled: filled.length };
+    return { success: true, sent: true, filled: filled.length };
   }
 
   async function checkAuthThen(fn) {
@@ -588,7 +575,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
       // 1. Explicit <label for="...">
       if (input.id) {
-        const labelEl = document.querySelector(`label[for="${input.id}"]`);
+        const labelEl = document.querySelector(`label${attrSelector('for', input.id)}`);
         if (labelEl) label = labelEl.textContent?.trim();
       }
 
@@ -639,13 +626,37 @@ console.log('[JF] Content script loaded on:', window.location.href);
     return fields;
   }
 
+  // Pick the AI value meant for this input. Exact name/id wins; loose
+  // substring matching only for names/keys of 3+ chars, so an unnamed input
+  // (or one named "q", like a search box) never grabs an unrelated value.
+  function findFieldValue(field, label, values) {
+    const entries = Object.entries(values).filter(([key, value]) => key && typeof value === 'string');
+    const name = (field.name || '').toLowerCase();
+    const id = (field.id || '').toLowerCase();
+
+    for (const [key, value] of entries) {
+      const k = key.toLowerCase();
+      if ((name && k === name) || (id && k === id) || (label && k === label)) return { key, value };
+    }
+    for (const [key, value] of entries) {
+      const k = key.toLowerCase();
+      if ((k.length >= 3 && label.includes(k)) || (name.length >= 3 && k.includes(name))) return { key, value };
+    }
+    return null;
+  }
+
   function fillFormFields(fields, application) {
     const filled = [];
 
     // Smart fill: match fields by label keywords
     for (const field of fields) {
       const label = (field.label || field.name || field.placeholder || '').toLowerCase();
-      const el = document.querySelector(field.selector);
+      let el = null;
+      try {
+        el = document.querySelector(field.selector);
+      } catch {
+        // Bad selector: skip this field rather than abort the whole fill
+      }
       if (!el) continue;
 
       // Subject field
@@ -677,14 +688,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
       }
       // Try matching from AI-generated fields
       else if (application.fields) {
-        for (const [fieldKey, value] of Object.entries(application.fields)) {
-          if (field.name === fieldKey || field.id === fieldKey ||
-            label.includes(fieldKey.toLowerCase()) ||
-            fieldKey.toLowerCase().includes(field.name.toLowerCase())) {
-            setInputValue(el, value);
-            filled.push(fieldKey);
-            break;
-          }
+        const match = findFieldValue(field, label, application.fields);
+        if (match) {
+          setInputValue(el, match.value);
+          filled.push(match.key);
         }
       }
     }
@@ -693,7 +700,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     if (!filled.includes('message') && application.cover_letter) {
       const textareas = document.querySelectorAll('textarea');
       for (const ta of textareas) {
-        const label = (ta.closest('label')?.textContent || document.querySelector(`label[for="${ta.id}"]`)?.textContent || '').toLowerCase();
+        const label = (ta.closest('label')?.textContent || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent || '').toLowerCase();
         if (!ta.value?.trim() && !label.includes('contact')) {
           setInputValue(ta, application.cover_letter);
           filled.push('message');
@@ -706,7 +713,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     if (!filled.includes('subject') && application.subject) {
       const inputs = document.querySelectorAll('input[type="text"]');
       for (const input of inputs) {
-        const label = (input.closest('label')?.textContent || document.querySelector(`label[for="${input.id}"]`)?.textContent || input.placeholder || '').toLowerCase();
+        const label = (input.closest('label')?.textContent || document.querySelector(`label${attrSelector('for', input.id)}`)?.textContent || input.placeholder || '').toLowerCase();
         if (label.includes('subject') && !input.value?.trim()) {
           setInputValue(input, application.subject);
           filled.push('subject');
@@ -734,16 +741,23 @@ console.log('[JF] Content script loaded on:', window.location.href);
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // [attr="value"] with quotes and backslashes escaped; safe for any value.
+  function attrSelector(attr, value) {
+    return `[${attr}="${String(value).replace(/["\\]/g, '\\$&')}"]`;
+  }
+
   function getUniqueSelector(el) {
-    if (el.id) return `#${el.id}`;
-    if (el.name) return `[name="${el.name}"]`;
+    // Quoted attribute selectors: ids/names like "1st-name" or "user.email"
+    // are invalid as raw #id selectors and would make querySelector throw.
+    if (el.id) return attrSelector('id', el.id);
+    if (el.name) return attrSelector('name', el.name);
 
     const path = [];
     let current = el;
     while (current && current !== document.body) {
       let selector = current.tagName.toLowerCase();
       if (current.className && typeof current.className === 'string') {
-        const classes = current.className.trim().split(/\s+/).slice(0, 2).join('.');
+        const classes = current.className.trim().split(/\s+/).slice(0, 2).map((c) => CSS.escape(c)).join('.');
         if (classes) selector += '.' + classes;
       }
       const parent = current.parentElement;
@@ -843,12 +857,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
           e.target.textContent = 'Manual';
           e.target.style.background = '#fef3c7';
           e.target.style.color = '#92400e';
-        } else if (result?.error) {
-          e.target.textContent = 'Error';
-          setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
-        } else {
+        } else if (result?.pending_review) {
+          e.target.textContent = 'Review in tab';
+        } else if (result?.sent) {
           e.target.textContent = 'Sent!';
           e.target.classList.add('jf-applied');
+        } else {
+          e.target.textContent = 'Error';
+          e.target.title = result?.error || 'Could not apply';
+          setTimeout(() => { e.target.textContent = 'Auto-Apply'; e.target.disabled = false; }, 3000);
         }
       });
     });
@@ -877,7 +894,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
             applyAllBtn.disabled = false;
             return;
           }
-          applyAllBtn.textContent = `Applying to ${recommended.length} jobs in the background...`;
+          applyAllBtn.textContent = res?.review
+            ? `Preparing ${res.count} applications for review in new tabs...`
+            : `Applying to ${recommended.length} jobs in the background...`;
           applyAllBtn.classList.add('jf-applied');
         } catch (err) {
           applyAllBtn.textContent = `Error: ${err.message}`;
@@ -913,38 +932,6 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
   // ========== CORE LOGIC ==========
 
-  async function scanAllPagesViaNav(maxPages) {
-    // Background script navigates the tab to each page, scrapes, then comes back
-    const result = await chrome.runtime.sendMessage({
-      action: 'scanMultiplePages',
-      maxPages,
-      baseUrl: window.location.href,
-    });
-
-    if (result?.error) {
-      showOverlay(`
-        <div class="jf-panel jf-panel-small">
-          <div class="jf-panel-header">
-            <h2>Error</h2>
-            <button id="jf-close" class="jf-close-btn">&times;</button>
-          </div>
-          <div class="jf-panel-body">
-            <p class="jf-error">${escapeHtml(result.error)}</p>
-          </div>
-        </div>
-      `);
-      return result;
-    }
-
-    if (result?.matches) {
-      await chrome.storage.local.set({ lastScanResults: result.matches, lastScanTime: Date.now() });
-      showMatchResults(result.matches);
-    }
-
-    return { jobs: result?.totalJobs || 0, matches: result?.matches?.length || 0 };
-  }
-
-  // Old scanAllPages removed - replaced by scanAllPagesViaNav + background orchestration
   async function _unused_scanAllPages(maxPages) {
     if (isProcessing) return { error: 'Already processing' };
     isProcessing = true;

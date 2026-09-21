@@ -16,35 +16,47 @@ const DEFAULT_CONFIG = {
   },
 };
 
-// Get auth headers for API calls, auto-refresh if needed
-async function getAuthHeaders() {
-  let { authToken } = await chrome.storage.local.get('authToken');
-  const headers = { 'Content-Type': 'application/json' };
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+// Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
+function tokenSecondsLeft(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 0;
+  } catch {
+    return 0;
   }
-  return headers;
 }
 
-async function refreshTokenIfNeeded() {
+// Refresh early so a token never expires mid-cycle.
+const REFRESH_MARGIN_SECONDS = 10 * 60;
+
+// Supabase refresh tokens are single-use, so two refreshes at once would log
+// the user out. Everything (popup included) goes through this one promise.
+let refreshInFlight = null;
+
+// Result of making sure a usable token is in storage:
+//   'ok'          token is valid (or was just refreshed)
+//   'rejected'    Supabase refused the refresh token: really logged out
+//   'unavailable' network / server problem: still logged in, try again later
+//   'signed_out'  no tokens stored
+async function refreshTokenIfNeeded(force = false) {
   const { authToken, authRefreshToken } = await chrome.storage.local.get(['authToken', 'authRefreshToken']);
-  if (!authToken || !authRefreshToken) return false;
+  if (!authToken || !authRefreshToken) return 'signed_out';
+  if (!force && tokenSecondsLeft(authToken) > REFRESH_MARGIN_SECONDS) return 'ok';
 
-  const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-
-  // Check if current token works
-  try {
-    const res = await fetch(`${apiUrl}/api/auth/session`, {
-      headers: { 'Authorization': `Bearer ${authToken}` },
+  if (!refreshInFlight) {
+    refreshInFlight = refreshToken(authRefreshToken).finally(() => {
+      refreshInFlight = null;
     });
-    if (res.ok) return true;
-  } catch {}
+  }
+  return refreshInFlight;
+}
 
-  // Token expired, refresh it
+async function refreshToken(authRefreshToken) {
+  const { config } = await chrome.storage.local.get('config');
+  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
   try {
     const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
-    if (!cfgRes.ok) return false;
+    if (!cfgRes.ok) return 'unavailable';
     const { url: supabaseUrl, anonKey } = await cfgRes.json();
 
     const refreshRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
@@ -52,16 +64,56 @@ async function refreshTokenIfNeeded() {
       headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
       body: JSON.stringify({ refresh_token: authRefreshToken }),
     });
+    // 400/401 = Supabase says this refresh token is invalid or used up
+    if (refreshRes.status === 400 || refreshRes.status === 401) return 'rejected';
     const data = await refreshRes.json();
     if (refreshRes.ok && data.access_token) {
-      await chrome.storage.local.set({
-        authToken: data.access_token,
-        authRefreshToken: data.refresh_token,
-      });
-      return true;
+      const update = { authToken: data.access_token, authRefreshToken: data.refresh_token };
+      if (data.user?.email) update.userEmail = data.user.email;
+      await chrome.storage.local.set(update);
+      return 'ok';
     }
   } catch {}
-  return false;
+  return 'unavailable';
+}
+
+// Get auth headers for API calls, refreshing the token first if it's close to
+// expiring.
+async function getAuthHeaders() {
+  await refreshTokenIfNeeded();
+  const { authToken } = await chrome.storage.local.get('authToken');
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
+// fetch() to our API with auth. On a 401 it force-refreshes the token and
+// retries once, so an expired session never silently stops auto-apply.
+async function apiFetch(url, init = {}) {
+  const release = keepAwake(); // AI calls can take longer than Chrome's idle limit
+  try {
+    let res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+    if (res.status === 401 && (await refreshTokenIfNeeded(true)) === 'ok') {
+      res = await fetch(url, { ...init, headers: await getAuthHeaders() });
+    }
+    return res;
+  } finally {
+    release();
+  }
+}
+
+// Merge changed settings into the latest stored config. Callers send only the
+// keys they changed, so a stale copy (e.g. a popup opened before "Sync
+// Profile") can't overwrite newer values. Updates run one at a time.
+let configWrite = Promise.resolve();
+function mergeConfig(changes) {
+  configWrite = configWrite.then(async () => {
+    const { config } = await chrome.storage.local.get('config');
+    await chrome.storage.local.set({ config: { ...DEFAULT_CONFIG, ...config, ...changes } });
+  }).catch(() => {});
+  return configWrite;
 }
 
 // Check if user is authenticated
@@ -70,15 +122,40 @@ async function isAuthenticated() {
   return !!authToken;
 }
 
-// Initialize on install
+// Chrome may drop alarms when the browser restarts, and they used to be
+// created only on install (with the default interval, which also reset the
+// user's interval on every extension update). Make sure both alarms exist and
+// match the saved settings; creating an alarm with the same name replaces it.
+async function ensureAlarms() {
+  const { config } = await chrome.storage.local.get('config');
+  const scanInterval = config?.scanInterval || DEFAULT_CONFIG.scanInterval;
+
+  const scan = await chrome.alarms.get('autoScan');
+  if (!scan || scan.periodInMinutes !== scanInterval) {
+    await chrome.alarms.create('autoScan', { periodInMinutes: scanInterval });
+  }
+  if (!(await chrome.alarms.get('refreshToken'))) {
+    await chrome.alarms.create('refreshToken', { periodInMinutes: 20 });
+  }
+}
+
+// Initialize on install / update
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('config');
   if (!existing.config) {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
-  chrome.alarms.create('autoScan', { periodInMinutes: DEFAULT_CONFIG.scanInterval });
-  chrome.alarms.create('refreshToken', { periodInMinutes: 45 });
+  await ensureAlarms();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureAlarms();
+});
+
+// Also check whenever the service worker wakes up
+ensureAlarms();
+// A fresh worker means any saved run belongs to a worker Chrome shut down
+recoverInterruptedRun();
 
 // Handle periodic tasks
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -130,11 +207,8 @@ async function handleAutoApplyCycle(tabId) {
 
     // Step 2: Match jobs
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-    const headers = await getAuthHeaders();
-
-    const matchRes = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const matchRes = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 
@@ -156,6 +230,13 @@ async function handleAutoApplyCycle(tabId) {
       .slice(0, maxApplies);
 
     if (toApply.length === 0) return;
+
+    // Review mode: never send unattended. Tell the user; clicking the
+    // notification prepares the applications for review.
+    if (config?.reviewBeforeSend !== false) {
+      await notifyMatchesForReview(toApply);
+      return;
+    }
 
     await applyToJobs(toApply);
   } catch {
@@ -182,9 +263,142 @@ async function unmarkApplied(url) {
 // Apply to each job in a hidden tab (fill + send). Each URL is persisted as
 // applied BEFORE sending, so a service-worker eviction mid-run can't cause a
 // double application; it's un-marked only on a clean, retryable failure.
+// Chrome stops an idle MV3 service worker after ~30s, and waiting on a slow
+// fetch (the AI writing step) counts as idle. Any extension API call resets
+// the timer, so ping one every 20s while long work is running.
+let keepAliveUsers = 0;
+let keepAliveTimer = null;
+function keepAwake() {
+  keepAliveUsers++;
+  if (!keepAliveTimer) {
+    keepAliveTimer = setInterval(() => chrome.runtime.getPlatformInfo().catch(() => {}), 20000);
+  }
+  return () => {
+    keepAliveUsers--;
+    if (keepAliveUsers <= 0 && keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+      keepAliveUsers = 0;
+    }
+  };
+}
+
+// Progress of the current Apply-All run, saved so that if Chrome still kills
+// the worker mid-run, the next wake-up can close the leftover tab and tell the
+// user where it stopped.
+async function saveRunState(state) {
+  await chrome.storage.local.set({ applyRun: state });
+}
+
+async function clearRunState() {
+  await chrome.storage.local.remove('applyRun');
+}
+
+async function recoverInterruptedRun() {
+  const { applyRun } = await chrome.storage.local.get('applyRun');
+  if (!applyRun) return;
+  await clearRunState();
+  for (const id of applyRun.tabIds || []) {
+    await chrome.tabs.remove(id).catch(() => {});
+  }
+  const unsure = applyRun.current ? ` "${applyRun.current}" may not have been sent, please check it.` : '';
+  chrome.notifications.create({
+    type: 'basic',
+    title: 'Auto-Apply Stopped Early',
+    message: `Stopped after ${applyRun.done} of ${applyRun.total} jobs.${unsure} Run it again to continue.`,
+    iconUrl: 'icons/icon128.png',
+  });
+}
+
+// Review mode: fill each application in its own tab and leave it for the user
+// to check and click Send. Nothing is sent from here.
+const MAX_REVIEW_TABS = 10;
+const REVIEW_NOTIFICATION_ID = 'jf-review-matches';
+
+async function prepareForReview(jobs) {
+  if (applyRunning) return { busy: true };
+  applyRunning = true;
+  const release = keepAwake();
+
+  let ready = 0;
+  let firstTab = null;
+  try {
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    const alreadyApplied = new Set(appliedUrls);
+    const pending = jobs.filter(j => j.apply_url && !alreadyApplied.has(j.apply_url)).slice(0, MAX_REVIEW_TABS);
+
+    for (const [index, job] of pending.entries()) {
+      // Review tabs are meant to stay open, so none are listed for cleanup;
+      // nothing is sent here, so there's no "may have been sent" job either.
+      await saveRunState({ tabIds: [], total: pending.length, done: index, current: null });
+      let tab;
+      try {
+        tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+        const result = await handleNavigateAndApply(job, tab.id);
+        if (result?.pending_review) {
+          ready++;
+          firstTab ??= tab;
+        } else if (!result?.manual_required) {
+          // Sent (review was switched off meanwhile) or failed: don't leave it open
+          setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), result?.sent ? 5000 : 0);
+        }
+        // manual_required: keep the tab open, it shows what's needed
+      } catch {
+        if (tab) chrome.tabs.remove(tab.id).catch(() => {});
+      }
+    }
+  } finally {
+    applyRunning = false;
+    release();
+    await clearRunState();
+  }
+
+  if (firstTab) {
+    await chrome.tabs.update(firstTab.id, { active: true }).catch(() => {});
+    await chrome.windows.update(firstTab.windowId, { focused: true }).catch(() => {});
+    chrome.notifications.create({
+      type: 'basic',
+      title: 'Ready to Review',
+      message: `${ready} application${ready > 1 ? 's are' : ' is'} filled in and open in tabs. Check each one and click Send.`,
+      iconUrl: 'icons/icon128.png',
+    });
+  }
+  return { ready };
+}
+
+// Background cycle in review mode: announce new matches once each.
+async function notifyMatchesForReview(jobs) {
+  const { notifiedUrls = [] } = await chrome.storage.local.get('notifiedUrls');
+  const seen = new Set(notifiedUrls);
+  const fresh = jobs.filter(j => !seen.has(j.apply_url));
+  if (fresh.length === 0) return;
+
+  await chrome.storage.local.set({
+    notifiedUrls: [...notifiedUrls, ...fresh.map(j => j.apply_url)].slice(-500),
+    reviewQueue: fresh,
+  });
+  const titles = fresh.slice(0, 3).map(j => j.title).join(', ');
+  chrome.notifications.create(REVIEW_NOTIFICATION_ID, {
+    type: 'basic',
+    title: `${fresh.length} new matching job${fresh.length > 1 ? 's' : ''}`,
+    message: `${titles}${fresh.length > 3 ? '...' : ''}. Click to prepare them for review.`,
+    iconUrl: 'icons/icon128.png',
+    requireInteraction: true,
+  });
+}
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  if (id !== REVIEW_NOTIFICATION_ID) return;
+  chrome.notifications.clear(id);
+  const { reviewQueue = [] } = await chrome.storage.local.get('reviewQueue');
+  await chrome.storage.local.remove('reviewQueue');
+  if (reviewQueue.length) await prepareForReview(reviewQueue);
+});
+
 async function applyToJobs(jobs) {
   if (applyRunning) return { busy: true, applied: 0 };
   applyRunning = true;
+  const release = keepAwake();
 
   let appliedCount = 0;
   let bgTab;
@@ -196,7 +410,8 @@ async function applyToJobs(jobs) {
 
     bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
 
-    for (const job of pending) {
+    for (const [index, job] of pending.entries()) {
+      await saveRunState({ tabIds: [bgTab.id], total: pending.length, done: index, current: job.title });
       try {
         await chrome.tabs.update(bgTab.id, { url: job.apply_url });
         await waitForTabLoad(bgTab.id);
@@ -266,6 +481,8 @@ async function applyToJobs(jobs) {
     }
   } finally {
     applyRunning = false;
+    release();
+    await clearRunState();
     if (bgTab) { try { await chrome.tabs.remove(bgTab.id); } catch {} }
   }
 
@@ -303,7 +520,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'updateConfig') {
-    chrome.storage.local.set({ config: message.config }).then(() => sendResponse({ success: true }));
+    mergeConfig(message.config).then(() => sendResponse({ success: true }));
     return true;
   }
 
@@ -314,6 +531,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'logApply') {
     logApplication(message.job).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === 'refreshAuth') {
+    refreshTokenIfNeeded(!!message.force).then((status) => sendResponse({ ok: status === 'ok', status }));
     return true;
   }
 
@@ -341,20 +563,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === 'autoScanWhenReady') {
-    // Wait for the tab to load, then auto-scan
-    handleAutoScanWhenReady(message.tabId).then(sendResponse);
-    return true;
-  }
-
   if (message.action === 'scanMultiplePages') {
     const tabId = message.tabId || sender.tab?.id;
     handleScanMultiplePages(message.baseUrl, message.maxPages, tabId).then(sendResponse);
-    return true;
-  }
-
-  if (message.action === 'navigateAndApplyInTab') {
-    handleNavigateAndApply(message.job, message.tabId).then(sendResponse);
     return true;
   }
 
@@ -363,6 +574,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const tab = await chrome.tabs.create({ url: message.job.apply_url, active: false });
         const result = await handleNavigateAndApply(message.job, tab.id);
+        if (result?.sent) {
+          // Give the send a moment to go through, then tidy up the hidden tab
+          setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), 5000);
+        } else {
+          // Review, manual step, or error: bring the tab forward so the user
+          // can finish it instead of it sitting hidden
+          await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+          await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+        }
         sendResponse(result);
       } catch (err) {
         sendResponse({ error: err.message });
@@ -372,15 +592,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'applyAllInBackground') {
-    // Runs in a hidden tab so the sender page can navigate or close without
+    // Runs in background tabs so the sender page can navigate or close without
     // killing the loop. Respond immediately; completion comes as a notification.
     if (applyRunning) {
       sendResponse({ busy: true });
       return false;
     }
-    applyToJobs(message.jobs || []);
-    sendResponse({ started: true });
-    return false;
+    chrome.storage.local.get('config').then(({ config }) => {
+      const jobs = message.jobs || [];
+      if (config?.reviewBeforeSend !== false) {
+        prepareForReview(jobs);
+        sendResponse({ started: true, review: true, count: Math.min(jobs.length, MAX_REVIEW_TABS) });
+      } else {
+        applyToJobs(jobs);
+        sendResponse({ started: true });
+      }
+    });
+    return true;
   }
 
   if (message.action === 'navigateAndApply') {
@@ -399,10 +627,8 @@ async function handleMatchJobs(jobs) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore || 55 }),
     });
 
@@ -429,10 +655,8 @@ async function handleGenerateApplication(job, formFields) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/extension/generate-application`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/generate-application`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({
         job,
         profile: config?.profile || DEFAULT_CONFIG.profile,
@@ -456,10 +680,8 @@ async function handleSaveJob(job) {
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${apiUrl}/api/saved-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/saved-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({
         source_id: `onlinejobs_${job.id || Date.now()}`,
         source: 'onlinejobs_ph',
@@ -492,26 +714,6 @@ async function updateStats(add) {
   current.applied += add.applied || 0;
 
   await chrome.storage.local.set({ stats: current });
-}
-
-// Auto-scan a tab once it finishes loading
-async function handleAutoScanWhenReady(tabId) {
-  try {
-    await waitForTabLoad(tabId);
-    await sleep(2500); // Let JS render the job listings
-
-    // Send scan command to the content script
-    try {
-      await chrome.tabs.sendMessage(tabId, { action: 'scanJobs' });
-    } catch {
-      await sleep(2000);
-      await chrome.tabs.sendMessage(tabId, { action: 'scanJobs' });
-    }
-
-    return { success: true };
-  } catch {
-    return { error: 'Could not auto-scan' };
-  }
 }
 
 // Orchestrate multi-page scanning using a hidden background tab
@@ -625,11 +827,8 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
 
     const { config } = await chrome.storage.local.get('config');
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
-    const headers = await getAuthHeaders();
-
-    const res = await fetch(`${apiUrl}/api/extension/match-jobs`, {
+    const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      headers,
       body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
     });
 

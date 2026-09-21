@@ -11,6 +11,16 @@ interface JobCardProps {
   isSaved?: boolean;
 }
 
+// "3 days ago", or null for a missing/invalid date. date-fns throws on an
+// invalid date, which would take down the whole results list.
+function postedAgo(value: string | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return null;
+  if (date.getTime() > Date.now()) return 'just now';
+  return formatDistanceToNow(date, { addSuffix: true });
+}
+
 export default function JobCard({ job, onSave, onMessage, isSaved }: JobCardProps) {
   return (
     <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-all border border-gray-100">
@@ -67,9 +77,11 @@ export default function JobCard({ job, onSave, onMessage, isSaved }: JobCardProp
             Remote
           </span>
         )}
-        <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2.5 py-1 rounded-full">
-          <Clock size={12} /> {formatDistanceToNow(new Date(job.posted_at), { addSuffix: true })}
-        </span>
+        {postedAgo(job.posted_at) && (
+          <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2.5 py-1 rounded-full">
+            <Clock size={12} /> {postedAgo(job.posted_at)}
+          </span>
+        )}
         {job.salary_max && (
           <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full font-semibold">
             ${job.salary_min?.toLocaleString() || '?'} - ${job.salary_max.toLocaleString()}
