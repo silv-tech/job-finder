@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { searchJobs } from '@/lib/jobs-api';
-import { sendAlertEmail } from '@/lib/email';
+import { sendAlertEmail, isEmailConfigured } from '@/lib/email';
 
 // This endpoint is called by Vercel Cron (see vercel.json)
 export const dynamic = 'force-dynamic';
@@ -15,6 +15,12 @@ export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Without email there's no way to deliver alerts, so don't spend job-search
+  // quota. Starts working on its own once Resend is configured.
+  if (!isEmailConfigured()) {
+    return NextResponse.json({ message: 'Email not configured, skipping alerts' });
   }
 
   let supabase;

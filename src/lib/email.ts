@@ -13,6 +13,14 @@ function getResend() {
   return resend;
 }
 
+// True when there's a real Resend key and sender address (not the
+// .env.example placeholders).
+export function isEmailConfigured(): boolean {
+  const key = process.env.RESEND_API_KEY;
+  const sender = process.env.SENDER_EMAIL;
+  return !!key && key !== 'your_resend_api_key_here' && !!sender && !sender.startsWith('your_email@');
+}
+
 // Resend does not throw on API errors (bad domain, invalid recipient, rate
 // limit); it returns { data, error }. Check both paths so a failed send is
 // never reported as success.
