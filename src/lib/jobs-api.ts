@@ -96,9 +96,18 @@ async function searchRemotive(query: string): Promise<Job[]> {
     contact_email: extractEmail((item.description as string) || ''),
     source: 'remotive',
     source_id: String(item.id),
-    posted_at: (item.publication_date as string) || new Date().toISOString(),
+    posted_at: remotiveDate(item.publication_date) || new Date().toISOString(),
     created_at: new Date().toISOString(),
   }));
+}
+
+// Remotive sends UTC times with no timezone ("2026-09-18T16:43:22"), which
+// browsers read as local time (8 hours off in PHT). Mark them as UTC.
+function remotiveDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const d = new Date(hasZone ? value : `${value}Z`);
+  return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 // --- Upwork RSS Feed ---
