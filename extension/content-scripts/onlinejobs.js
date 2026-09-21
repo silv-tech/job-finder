@@ -911,7 +911,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
             applyAllBtn.disabled = false;
             return;
           }
-          applyAllBtn.textContent = `Applying to ${recommended.length} jobs in the background...`;
+          applyAllBtn.textContent = res?.review
+            ? `Preparing ${res.count} applications for review in new tabs...`
+            : `Applying to ${recommended.length} jobs in the background...`;
           applyAllBtn.classList.add('jf-applied');
         } catch (err) {
           applyAllBtn.textContent = `Error: ${err.message}`;

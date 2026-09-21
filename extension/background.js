@@ -224,6 +224,13 @@ async function handleAutoApplyCycle(tabId) {
 
     if (toApply.length === 0) return;
 
+    // Review mode: never send unattended. Tell the user; clicking the
+    // notification prepares the applications for review.
+    if (config?.reviewBeforeSend !== false) {
+      await notifyMatchesForReview(toApply);
+      return;
+    }
+
     await applyToJobs(toApply);
   } catch {
     // Silent fail for background cycle
@@ -249,6 +256,85 @@ async function unmarkApplied(url) {
 // Apply to each job in a hidden tab (fill + send). Each URL is persisted as
 // applied BEFORE sending, so a service-worker eviction mid-run can't cause a
 // double application; it's un-marked only on a clean, retryable failure.
+// Review mode: fill each application in its own tab and leave it for the user
+// to check and click Send. Nothing is sent from here.
+const MAX_REVIEW_TABS = 10;
+const REVIEW_NOTIFICATION_ID = 'jf-review-matches';
+
+async function prepareForReview(jobs) {
+  if (applyRunning) return { busy: true };
+  applyRunning = true;
+
+  let ready = 0;
+  let firstTab = null;
+  try {
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    const alreadyApplied = new Set(appliedUrls);
+    const pending = jobs.filter(j => j.apply_url && !alreadyApplied.has(j.apply_url)).slice(0, MAX_REVIEW_TABS);
+
+    for (const job of pending) {
+      let tab;
+      try {
+        tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+        const result = await handleNavigateAndApply(job, tab.id);
+        if (result?.pending_review) {
+          ready++;
+          firstTab ??= tab;
+        } else if (!result?.manual_required) {
+          // Sent (review was switched off meanwhile) or failed: don't leave it open
+          setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), result?.sent ? 5000 : 0);
+        }
+        // manual_required: keep the tab open, it shows what's needed
+      } catch {
+        if (tab) chrome.tabs.remove(tab.id).catch(() => {});
+      }
+    }
+  } finally {
+    applyRunning = false;
+  }
+
+  if (firstTab) {
+    await chrome.tabs.update(firstTab.id, { active: true }).catch(() => {});
+    await chrome.windows.update(firstTab.windowId, { focused: true }).catch(() => {});
+    chrome.notifications.create({
+      type: 'basic',
+      title: 'Ready to Review',
+      message: `${ready} application${ready > 1 ? 's are' : ' is'} filled in and open in tabs. Check each one and click Send.`,
+      iconUrl: 'icons/icon128.png',
+    });
+  }
+  return { ready };
+}
+
+// Background cycle in review mode: announce new matches once each.
+async function notifyMatchesForReview(jobs) {
+  const { notifiedUrls = [] } = await chrome.storage.local.get('notifiedUrls');
+  const seen = new Set(notifiedUrls);
+  const fresh = jobs.filter(j => !seen.has(j.apply_url));
+  if (fresh.length === 0) return;
+
+  await chrome.storage.local.set({
+    notifiedUrls: [...notifiedUrls, ...fresh.map(j => j.apply_url)].slice(-500),
+    reviewQueue: fresh,
+  });
+  const titles = fresh.slice(0, 3).map(j => j.title).join(', ');
+  chrome.notifications.create(REVIEW_NOTIFICATION_ID, {
+    type: 'basic',
+    title: `${fresh.length} new matching job${fresh.length > 1 ? 's' : ''}`,
+    message: `${titles}${fresh.length > 3 ? '...' : ''}. Click to prepare them for review.`,
+    iconUrl: 'icons/icon128.png',
+    requireInteraction: true,
+  });
+}
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  if (id !== REVIEW_NOTIFICATION_ID) return;
+  chrome.notifications.clear(id);
+  const { reviewQueue = [] } = await chrome.storage.local.get('reviewQueue');
+  await chrome.storage.local.remove('reviewQueue');
+  if (reviewQueue.length) await prepareForReview(reviewQueue);
+});
+
 async function applyToJobs(jobs) {
   if (applyRunning) return { busy: true, applied: 0 };
   applyRunning = true;
@@ -453,15 +539,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'applyAllInBackground') {
-    // Runs in a hidden tab so the sender page can navigate or close without
+    // Runs in background tabs so the sender page can navigate or close without
     // killing the loop. Respond immediately; completion comes as a notification.
     if (applyRunning) {
       sendResponse({ busy: true });
       return false;
     }
-    applyToJobs(message.jobs || []);
-    sendResponse({ started: true });
-    return false;
+    chrome.storage.local.get('config').then(({ config }) => {
+      const jobs = message.jobs || [];
+      if (config?.reviewBeforeSend !== false) {
+        prepareForReview(jobs);
+        sendResponse({ started: true, review: true, count: Math.min(jobs.length, MAX_REVIEW_TABS) });
+      } else {
+        applyToJobs(jobs);
+        sendResponse({ started: true });
+      }
+    });
+    return true;
   }
 
   if (message.action === 'navigateAndApply') {
