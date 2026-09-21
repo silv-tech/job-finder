@@ -1,0 +1,21 @@
+# Daily job alerts. Railway doesn't run vercel.json crons, so GitHub calls the
+# alert endpoint on the Railway service instead. CRON_SECRET must match the
+# Railway variable of the same name.
+name: Daily job alerts
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # 09:00 UTC = 5:00 PM PHT
+  workflow_dispatch: {}
+
+jobs:
+  check-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the alert endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body -sS --max-time 280 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://job-finder-production-7aab.up.railway.app/api/cron/check-alerts
