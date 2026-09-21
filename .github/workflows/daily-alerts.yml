@@ -1,5 +1,5 @@
-# Daily job alerts. Railway doesn't run vercel.json crons, so GitHub calls the
-# alert endpoint on the Railway service instead. CRON_SECRET must match the
+# Daily job alerts. The app runs on Railway; this workflow calls its alert
+# endpoint on a schedule. CRON_SECRET must match the
 # Railway variable of the same name.
 name: Daily job alerts
 

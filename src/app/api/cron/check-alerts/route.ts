@@ -3,7 +3,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { searchJobs } from '@/lib/jobs-api';
 import { sendAlertEmail, isEmailConfigured } from '@/lib/email';
 
-// This endpoint is called by Vercel Cron (see vercel.json)
+// Called daily by the GitHub Actions workflow in .github/workflows/daily-alerts.yml
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
