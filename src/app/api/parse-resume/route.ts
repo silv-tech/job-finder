@@ -1,51 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { AI_MODEL } from '@/lib/ai-config';
+import { AI_MODEL, extractText, parseJsonResponse } from '@/lib/ai-config';
 import { requireAuth } from '@/lib/auth-api';
+import { safeFetchText } from '@/lib/safe-fetch';
 
 export const dynamic = 'force-dynamic';
-
-// Block server-side requests to localhost / private / link-local hosts so this
-// URL-import endpoint can't be used to reach internal services or cloud
-// metadata (SSRF). Not bulletproof against DNS rebinding, but combined with the
-// auth gate it closes the practical vectors.
-function isSafeImportUrl(raw: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.internal') ||
-    host === 'metadata.google.internal' ||
-    host === '0.0.0.0' ||
-    host === '::1'
-  ) {
-    return false;
-  }
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (m) {
-    const a = +m[1];
-    const b = +m[2];
-    if (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      a >= 224 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 let anthropic: Anthropic | null = null;
 
@@ -76,18 +35,8 @@ export async function POST(req: NextRequest) {
       if (!body.url) {
         return NextResponse.json({ error: 'No URL provided' }, { status: 400 });
       }
-      if (!isSafeImportUrl(body.url)) {
-        return NextResponse.json({ error: 'That URL is not allowed' }, { status: 400 });
-      }
-
       try {
-        const res = await fetch(body.url, {
-          redirect: 'error', // don't follow redirects into blocked hosts
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobFinder/1.0)' },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        const html = await res.text();
+        const html = await safeFetchText(String(body.url));
         // Strip HTML tags to get text content
         resumeText = html
           .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -97,7 +46,10 @@ export async function POST(req: NextRequest) {
           .trim()
           .slice(0, 8000);
       } catch (err) {
-        return NextResponse.json({ error: 'Could not fetch URL: ' + String(err) }, { status: 400 });
+        const reason = err instanceof Error && /not allowed|Invalid URL|too large|timed out|Failed to fetch|redirects/.test(err.message)
+          ? err.message
+          : 'the site could not be reached';
+        return NextResponse.json({ error: `Could not fetch URL: ${reason}` }, { status: 400 });
       }
     } else {
       // File upload
@@ -112,8 +64,8 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(arrayBuffer);
 
       if (file.name.endsWith('.pdf')) {
-        const { extractText } = await import('unpdf');
-        const result = await extractText(new Uint8Array(arrayBuffer));
+        const { extractText: extractPdfText } = await import('unpdf');
+        const result = await extractPdfText(new Uint8Array(arrayBuffer));
         resumeText = Array.isArray(result.text) ? result.text.join('\n') : String(result.text || '');
       } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
         resumeText = buffer.toString('utf-8');
@@ -182,21 +134,16 @@ ${resumeText.slice(0, 5000)}`,
       ],
     });
 
-    const content = message.content?.[0];
-    if (!content || content.type !== 'text') {
+    const text = extractText(message);
+    const parsed = text ? parseJsonResponse(text) : null;
+    if (!parsed) {
       return NextResponse.json({ error: 'AI could not parse resume' }, { status: 500 });
     }
-
-    let text = content.text.trim();
-    if (text.startsWith('```')) {
-      text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
-    const parsed = JSON.parse(text);
     // Include the full resume text so it can be stored and used for applications
     parsed.resume_text = resumeText.slice(0, 10000);
     return NextResponse.json({ profile: parsed });
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to parse resume: ' + String(err) }, { status: 500 });
+    console.error('Parse resume error:', err);
+    return NextResponse.json({ error: 'Failed to parse resume' }, { status: 500 });
   }
 }
