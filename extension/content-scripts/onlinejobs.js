@@ -259,7 +259,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
             <ul style="margin:0;padding-left:16px;font-size:13px;color:#1e293b;">
               ${application.requirements.map(r => `<li style="margin-bottom:4px;">${escapeHtml(r)}</li>`).join('')}
             </ul>
-            <p class="jf-status" style="margin-top:12px;">Your application is written below. Record the video, then paste this in and send.</p>
+            <p class="jf-status" style="margin-top:12px;">${application.cover_letter
+              ? 'Your application is written below. Record the video, then paste this in and send.'
+              : 'The message could not be drafted for this one, so it needs writing by hand as well.'}</p>
             ${application.cover_letter ? `
               <div style="margin-top:10px;">
                 <div style="font-size:10px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">Subject</div>
