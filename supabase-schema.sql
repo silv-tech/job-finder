@@ -120,6 +120,9 @@ CREATE TABLE applications (
   subject TEXT DEFAULT '',
   message TEXT DEFAULT '',
   posted_at TEXT DEFAULT '',
+  -- 'sent', or 'needs_manual' for a job that wants a Loom video, a trial task
+  -- or an external form and so could not be applied to automatically
+  status TEXT DEFAULT 'sent',
   sent_at TIMESTAMPTZ DEFAULT now()
 );
 
