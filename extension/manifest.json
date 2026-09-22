@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Finder Auto-Apply",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Automatically scrape job listings and apply with AI-generated applications",
   "permissions": [
     "activeTab",
