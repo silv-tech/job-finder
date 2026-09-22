@@ -831,8 +831,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'clearSeen') {
     // Jobs already applied to stay protected by appliedUrls, so clearing this
-    // only makes older posts eligible to be scored again.
-    chrome.storage.local.remove('seenUrls').then(() => sendResponse({ ok: true }));
+    // only makes older posts eligible to be scored again. Report the count:
+    // an action with no visible effect looks like a broken button.
+    (async () => {
+      const { seenUrls = [] } = await chrome.storage.local.get('seenUrls');
+      await chrome.storage.local.remove('seenUrls');
+      sendResponse({ ok: true, cleared: seenUrls.length });
+    })();
     return true;
   }
 

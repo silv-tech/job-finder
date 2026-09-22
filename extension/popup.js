@@ -404,9 +404,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('clear-seen-btn').addEventListener('click', () => {
       const btn = document.getElementById('clear-seen-btn');
-      chrome.runtime.sendMessage({ action: 'clearSeen' }, () => {
-        btn.textContent = 'Cleared. Older posts are eligible again.';
-        setTimeout(() => { btn.textContent = 'Re-check older posts (clear the seen list)'; }, 4000);
+      chrome.runtime.sendMessage({ action: 'clearSeen' }, (res) => {
+        const n = res && typeof res.cleared === 'number' ? res.cleared : null;
+        btn.textContent = n === null
+          ? 'Cleared. Older posts are eligible again.'
+          : n === 0
+            ? 'Nothing was in the list. Older posts were already eligible.'
+            : `Cleared ${n} post${n === 1 ? '' : 's'}. They can be scored again now.`;
+        btn.style.color = '#047857';
+        setTimeout(() => {
+          btn.textContent = 'Re-check older posts (clear the seen list)';
+          btn.style.color = '#94a3b8';
+        }, 10000);
       });
     });
 
