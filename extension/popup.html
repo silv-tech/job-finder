@@ -297,6 +297,17 @@
           <div id="manual-list" style="display:grid;gap:8px;"></div>
         </div>
 
+        <!-- The end-of-day report. Email was dropped, so this is where he reads
+             back exactly what went out, with the full message. -->
+        <div id="report-card" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:11px;font-weight:700;letter-spacing:.04em;color:#64748b;text-transform:uppercase;">Sent today</span>
+            <button id="report-refresh" style="background:none;border:none;padding:0;font-size:11px;color:#94a3b8;cursor:pointer;text-decoration:underline;">refresh</button>
+          </div>
+          <div id="report-summary" style="font-size:11px;color:#64748b;margin-bottom:8px;">Loading...</div>
+          <div id="report-list" style="display:grid;gap:8px;"></div>
+        </div>
+
         <div class="lane-list">
           <span class="lane-title">Job types to search (one per cycle, rotating)</span>
           <label class="lane-row">

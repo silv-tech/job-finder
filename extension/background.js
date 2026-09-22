@@ -836,6 +836,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'getTodayApplications') {
+    (async () => {
+      try {
+        const { config } = await chrome.storage.local.get('config');
+        const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+        const res = await apiFetch(`${apiUrl}/api/extension/applications`);
+        if (!res.ok) { sendResponse({ applications: [], error: 'HTTP ' + res.status }); return; }
+        sendResponse(await res.json());
+      } catch (err) {
+        sendResponse({ applications: [], error: String(err) });
+      }
+    })();
+    return true;
+  }
+
   if (message.action === 'getManualQueue') {
     chrome.storage.local.get('manualQueue').then((r) => sendResponse(r.manualQueue || []));
     return true;

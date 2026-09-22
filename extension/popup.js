@@ -277,8 +277,71 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // The end-of-day report: what actually went out, with the full message, so
+    // he can judge the writing without asking anyone to dig it out.
+    const LANE_SHORT = {
+      developer: 'Dev', automations: 'Auto', management: 'Mgmt',
+      exec_assistant: 'EA', general_va: 'VA',
+    };
+
+    function paintReport() {
+      const list = document.getElementById('report-list');
+      const summary = document.getElementById('report-summary');
+      if (!list || !summary) return;
+      chrome.runtime.sendMessage({ action: 'getTodayApplications' }, (res) => {
+        if (!res || res.error) {
+          summary.textContent = res && res.error ? 'Could not load: ' + res.error : 'Could not load.';
+          list.innerHTML = '';
+          return;
+        }
+        const apps = res.applications || [];
+        if (apps.length === 0) {
+          summary.textContent = 'Nothing sent yet today.';
+          list.innerHTML = '';
+          return;
+        }
+        summary.textContent = `${res.sent} sent, ${res.points} point${res.points === 1 ? '' : 's'} spent`
+          + (res.needs_manual ? `, ${res.needs_manual} needing you` : '');
+
+        list.innerHTML = apps.map((a, i) => {
+          const manual = a.status === 'needs_manual';
+          const time = a.sent_at ? new Date(a.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          const tone = manual ? '#b45309' : (a.score >= 85 ? '#047857' : a.score >= 70 ? '#0f172a' : '#64748b');
+          return `
+          <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;">
+            <a href="${esc(a.apply_url)}" target="_blank" rel="noopener"
+               style="font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">${esc(a.title)}</a>
+            <div style="font-size:11px;color:#64748b;padding-top:2px;">
+              <span style="color:${tone};font-weight:600;">${manual ? 'needs you' : esc(a.score) + '%'}</span>
+              &middot; ${esc(LANE_SHORT[a.lane] || a.lane || '')}
+              &middot; ${esc(a.apply_points)} pt${a.apply_points === 1 ? '' : 's'}
+              ${time ? '&middot; ' + esc(time) : ''}
+            </div>
+            <div style="font-size:11px;color:#1e293b;padding-top:4px;"><b>${esc(a.subject)}</b></div>
+            ${a.message ? `<button class="msg-toggle" data-i="${i}"
+                style="margin-top:4px;background:none;border:none;padding:0;font-size:11px;color:#64748b;cursor:pointer;text-decoration:underline;">read the message</button>
+              <div class="msg-body hidden" data-i="${i}"
+                style="margin-top:6px;font-size:11px;color:#334155;line-height:1.5;white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;">${esc(a.message)}</div>` : ''}
+          </div>`;
+        }).join('');
+
+        list.querySelectorAll('.msg-toggle').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const body = list.querySelector(`.msg-body[data-i="${btn.dataset.i}"]`);
+            if (!body) return;
+            const open = !body.classList.contains('hidden');
+            body.classList.toggle('hidden', open);
+            btn.textContent = open ? 'read the message' : 'hide the message';
+          });
+        });
+      });
+    }
+
+    document.getElementById('report-refresh').addEventListener('click', paintReport);
+
     paintToday();
     paintManual();
+    paintReport();
     setInterval(paintToday, 5000);
     setInterval(paintManual, 10000);
 
