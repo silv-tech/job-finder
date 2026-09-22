@@ -361,6 +361,10 @@ async function runAutoApplyCycle(trigger) {
     const useLanes = !config.lanes || config.lanes.length > 0;
     const keywords = encodeURIComponent(useLanes ? search : (config.autoApplyKeywords || search));
     const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${keywords}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
+    // Recorded BEFORE the work, so the specific outcome below replaces it
+    // rather than the other way round. Overwriting afterwards destroyed the
+    // very diagnosis this exists to give.
+    await recordCycle('searching (' + trigger + ')', search);
     const tab = await chrome.tabs.create({ url: searchUrl, active: false });
 
     await waitForTabLoad(tab.id);
@@ -369,8 +373,6 @@ async function runAutoApplyCycle(trigger) {
     // With no lanes ticked the search comes from the keyword box, so there is
     // no lane to score against: let the API judge each job against all four.
     await handleAutoApplyCycle(tab.id, useLanes ? lane : null);
-
-    await recordCycle('ran (' + trigger + ')', 'searched ' + search);
 
     // Close the search tab after scanning
     try { await chrome.tabs.remove(tab.id); } catch {}
@@ -635,11 +637,14 @@ async function applyToJobs(jobs) {
   const release = keepAwake();
 
   let appliedCount = 0;
+  let plannedCount = 0; // declared out here: `pending` is scoped to the try
+  const outcomes = [];
   let bgTab;
   try {
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const alreadyApplied = new Set(appliedUrls);
     const pending = jobs.filter(j => j.apply_url && !alreadyApplied.has(j.apply_url));
+    plannedCount = pending.length;
     if (pending.length === 0) return { applied: 0 };
 
     bgTab = await chrome.tabs.create({ url: 'about:blank', active: false });
@@ -659,11 +664,15 @@ async function applyToJobs(jobs) {
           await sleep(2000);
           try {
             clickResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'clickApplyButton' });
-          } catch { continue; }
+          } catch {
+            outcomes.push('no apply button');
+            continue;
+          }
         }
 
         if (clickResult?.already_applied) {
           await markApplied(job.apply_url);
+          outcomes.push('already applied');
           continue;
         }
 
@@ -688,9 +697,14 @@ async function applyToJobs(jobs) {
             fillResult = await chrome.tabs.sendMessage(bgTab.id, { action: 'autoFillAndSend', job });
           } catch {
             // Unknown whether it sent; leave it marked rather than risk a duplicate
+            outcomes.push('no reply after send');
             continue;
           }
         }
+
+        if (fillResult?.manual_required) outcomes.push('needs manual steps');
+        else if (fillResult?.success) outcomes.push('sent');
+        else outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
 
         if (fillResult?.manual_required) {
           chrome.notifications.create({
@@ -704,7 +718,12 @@ async function applyToJobs(jobs) {
           // Points are spent the moment it sends, so the ledger moves here.
           await recordSpend(job.apply_points || 1);
           // The apply page knows the true balance; trust it over our running total.
-          if (fillResult.ap_balance != null) await recordApBalance(fillResult.ap_balance);
+          // readApBalance() runs before the send button is clicked, so the page
+          // shows the balance BEFORE this application. Subtract what we just
+          // spent, or the figure is permanently one application stale.
+          if (fillResult.ap_balance != null) {
+            await recordApBalance(fillResult.ap_balance - (fillResult.ap_spent || job.apply_points || 1));
+          }
           await handleSaveJob(job);
           await logApplication(job, fillResult.application);
         } else {
@@ -713,11 +732,17 @@ async function applyToJobs(jobs) {
         }
 
         await sleep(3000);
-      } catch {
+      } catch (err) {
+        outcomes.push('error: ' + String(err).slice(0, 60));
         continue;
       }
     }
   } finally {
+    // Say what happened to every job, not only the ones that worked. "3 planned,
+    // 1 sent" with no reason for the other two is what made this hard to debug.
+    const tally = outcomes.reduce((a, o) => { a[o] = (a[o] || 0) + 1; return a; }, {});
+    const summary = Object.entries(tally).map(([k, n]) => n + ' ' + k).join(', ');
+    await recordCycle('sent ' + appliedCount + ' of ' + plannedCount, summary || 'nothing attempted');
     applyRunning = false;
     release();
     await clearRunState();
