@@ -177,6 +177,45 @@ export function falseToolClaims(lacking: string[], message: string): string[] {
   return found;
 }
 
+// Past employers and clients stay anonymous: "in a previous role I ran a team
+// of 30+", not "at Pink Models Agency I ran a team of 30+". His own products
+// are the exception. They are on his public portfolio, they are linked in every
+// message, and naming them is the proof itself.
+const OWN_WORK = [
+  'whitelabelai', 'dark sync', 'darksync', 'forgeai', 'forge ai', 'agentforge',
+  'dcte', 'h.u.b', 'hub', 'hanap', 'dlvasolutions', 'dlva', 'nocturne',
+  'pickleball', 'job finder', 'jobfinder',
+];
+
+// Places, and words that follow "at" without naming an employer.
+const NOT_AN_EMPLOYER =
+  /^(?:davao|philippines|manila|cebu|us|usa|uk|least|most|best|scale|once|all|any|first|second|third|home|night|noon|midnight|the|a|an|my|your|our|this|that|it|times?|hours?|work|school|university|college|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)$/i;
+
+export function namedEmployers(message: string): string[] {
+  const found: string[] = [];
+  // "At Taskapp AI I managed..." / "at Pink Models Agency, I ran...". The
+  // capital A matters: the sentence-initial form is the common one, and an
+  // earlier version only matched lowercase "at", so it missed exactly the
+  // sentence this was written for. Case cannot be handled with the /i flag
+  // because the [A-Z] is what identifies the company name.
+  const re = /\b[Aa]t ([A-Z][A-Za-z0-9&.'-]*(?: [A-Z][A-Za-z0-9&.'-]*){0,3})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(message || '')) !== null) {
+    // "At Taskapp AI I managed..." captures the pronoun too, because "I" is a
+    // capitalised word like any other. Trim pronouns off the end.
+    const name = m[1]
+      .replace(/\s+(?:I|We|My|Our|They|He|She|It)$/, '')
+      .replace(/[.,]+$/, '')
+      .trim();
+    if (!name) continue;
+    const lower = name.toLowerCase();
+    if (NOT_AN_EMPLOYER.test(lower)) continue;
+    if (OWN_WORK.some((own) => lower.includes(own))) continue;
+    if (!found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
 // --- Prompt -----------------------------------------------------------------
 
 // The one other skill area worth a passing mention for each kind of job, so the
@@ -310,6 +349,7 @@ ${fieldsBlock}
    - When you cite a past role or project, restate only what the profile says. Don't add methods, reasons, habits, frequencies or results it doesn't state ("staying accurate meant...", "I had to... since every..."). If the closest example doesn't really fit the question, say so and describe how they'd do it here instead.
    - If the post asks how long or how much they've used a tool, answer directly with what the profile supports (e.g. "Airtable has been one of the integrations in my projects") rather than a disclaimer.
    - Only claim tools, skills and experience that appear in the profile, resume or proof points. If the post names a tool the applicant hasn't used, don't say they have; mention the closest real experience instead.
+   - NEVER name a past employer or client. Say "in a previous role", "at an agency I worked with", "for a client", "a team I ran" instead. "In a previous role I ran a team of 30+ and grew monthly net sales from $40,000 to $200,000" carries exactly the same weight as naming the company, and the name is not the employer's business. The ONE exception is the applicant's own products and projects, the ones on their portfolio: name those freely, they are the proof.
    - NEVER describe the applicant's background by what it is NOT. No "my background is in X rather than Y", no "I don't have direct experience in", no "while I haven't worked as a...", no "I'm not a X, but". The employer can see what the résumé says; spelling out the gap only argues him out of the job. State the closest real experience as a positive fact and let it stand on its own. The one exception is a direct question from the post, covered under EMBEDDED QUESTIONS: answer that honestly, but answer it forward ("here's the nearest thing I've done, and here's how I'd handle yours"), never as a bare confession.
    - Don't invent availability, working hours, rates or start dates. If the post asks about hours or time zone, state the applicant's location/time zone from the profile and that they're open to the schedule; don't promise specific hours unless the profile says so.
 
@@ -659,6 +699,27 @@ Rewrite so no sentence claims past use of them. Do NOT swing the other way and a
       } catch {
         // keep the draft
       }
+    }
+  }
+
+  // Past employers and clients stay anonymous.
+  const employers = namedEmployers(draft.cover_letter || '');
+  if (employers.length) {
+    const anonPrompt = `${buildPrompt(job, profile, opts)}
+
+=== REMOVE THE COMPANY NAMES ===
+Here is your draft:
+${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fields: draft.fields, hidden_instructions_found: draft.hidden_instructions_found })}
+
+It names a past employer or client: ${employers.join(', ')}. Rewrite so no past employer or client is named. Keep every fact, number and result exactly as it is, and keep the sentence just as concrete: "in a previous role", "at an agency I worked with", "for a client". The applicant's OWN products and portfolio projects may stay named. Change nothing else, keep the links exactly, and return the same JSON shape.`;
+    try {
+      const anon = await callModel(client, anonPrompt);
+      const still = namedEmployers(anon.cover_letter || '');
+      const keptFields = Object.keys(draft.fields || {}).every((k) => typeof anon.fields?.[k] === 'string');
+      if (anon.subject && keptFields && still.length < employers.length) draft = anon;
+      if (process.env.WRITER_DEBUG) console.log('[employers]', employers, '-> after:', still);
+    } catch {
+      // keep the draft
     }
   }
 
