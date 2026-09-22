@@ -145,12 +145,21 @@ function filterFresh(jobs, maxAgeHours) {
 async function filterUnseen(jobs) {
   const stored = await chrome.storage.local.get('seenUrls');
   const seen = new Set(stored.seenUrls || []);
-  const fresh = jobs.filter((j) => j.apply_url && !seen.has(j.apply_url));
-  for (const j of jobs) if (j.apply_url) seen.add(j.apply_url);
-  // Keep the list from growing without bound.
-  const trimmed = [...seen].slice(-4000);
-  await chrome.storage.local.set({ seenUrls: trimmed });
-  return fresh;
+  return jobs.filter((j) => j.apply_url && !seen.has(j.apply_url));
+}
+
+// Marking happens only AFTER a job has been judged, and only for jobs we will
+// never want to revisit: ones that scored below the bar, and ones we applied
+// to. Marking everything on sight burned the whole page on the first cycle,
+// including jobs that qualified but did not fit in that cycle's limit, so a
+// backlog of good matches was silently thrown away and every later cycle said
+// "nothing new".
+async function markSeen(urls) {
+  if (!urls || urls.length === 0) return;
+  const stored = await chrome.storage.local.get('seenUrls');
+  const seen = new Set(stored.seenUrls || []);
+  for (const u of urls) if (u) seen.add(u);
+  await chrome.storage.local.set({ seenUrls: [...seen].slice(-4000) });
 }
 
 // Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
@@ -427,6 +436,10 @@ async function handleAutoApplyCycle(tabId, lane) {
     }
     const matchData = await matchRes.json();
 
+    // Everything scored below the bar has been judged: never look at it again.
+    const belowBar = (matchData.matches || []).filter(m => !m.should_apply).map(m => m.apply_url);
+    await markSeen(belowBar);
+
     const recommended = (matchData.matches || []).filter(m => m.should_apply);
     if (recommended.length === 0) {
       const best = Math.max(0, ...(matchData.matches || []).map(m => m.score || 0));
@@ -473,6 +486,9 @@ async function handleAutoApplyCycle(tabId, lane) {
       return;
     }
 
+    // Only the ones actually being applied to are marked. Qualifying jobs that
+    // did not fit this cycle stay eligible and get picked up next time.
+    await markSeen(toApply.map(j => j.apply_url));
     await recordCycle('applying', `${toApply.length} job(s), ${plannedAp} point(s)`);
     await applyToJobs(toApply);
   } catch {
@@ -707,10 +723,15 @@ async function applyToJobs(jobs) {
         else outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
 
         if (fillResult?.manual_required) {
+          // A Chrome notification vanishes and the job is then lost. Jobs that
+          // ask for a Loom, a test or a form are often the serious postings, so
+          // keep them somewhere he can come back to.
+          await queueManual(job, fillResult.requirements);
           chrome.notifications.create({
             type: 'basic',
-            title: 'Manual Action Needed',
-            message: `"${job.title}" requires: ${(fillResult.requirements || ['manual steps']).join(', ')}`,
+            title: 'Needs you: ' + job.title.slice(0, 40),
+            message: `${(fillResult.requirements || ['manual steps']).join(', ')}
+Saved to the extension popup.`,
             iconUrl: 'icons/icon128.png',
           });
         } else if (fillResult?.success) {
@@ -795,6 +816,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     runAutoApplyCycle('manual').then(
       () => chrome.storage.local.get('lastCycle').then((r) => sendResponse(r.lastCycle || null)),
       (err) => sendResponse({ status: 'error', detail: String(err) })
+    );
+    return true;
+  }
+
+  if (message.action === 'clearSeen') {
+    // Jobs already applied to stay protected by appliedUrls, so clearing this
+    // only makes older posts eligible to be scored again.
+    chrome.storage.local.remove('seenUrls').then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (message.action === 'getManualQueue') {
+    chrome.storage.local.get('manualQueue').then((r) => sendResponse(r.manualQueue || []));
+    return true;
+  }
+
+  if (message.action === 'clearManualJob') {
+    chrome.storage.local.get('manualQueue').then(({ manualQueue = [] }) =>
+      chrome.storage.local
+        .set({ manualQueue: manualQueue.filter((m) => m.apply_url !== message.apply_url) })
+        .then(() => sendResponse({ ok: true }))
     );
     return true;
   }
@@ -1225,6 +1267,48 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Jobs the automation could not finish: a Loom video, a skills test, an
+// external form. Kept locally so the popup can list them, and recorded server
+// side so the end-of-day report can too.
+async function queueManual(job, requirements) {
+  const { manualQueue = [] } = await chrome.storage.local.get('manualQueue');
+  if (!manualQueue.some((m) => m.apply_url === job.apply_url)) {
+    manualQueue.unshift({
+      title: job.title,
+      company: job.company || '',
+      apply_url: job.apply_url,
+      lane: job.lane || '',
+      score: job.score || null,
+      requirements: requirements || ['manual steps'],
+      at: new Date().toISOString(),
+    });
+    await chrome.storage.local.set({ manualQueue: manualQueue.slice(0, 50) });
+  }
+
+  try {
+    const { config } = await chrome.storage.local.get('config');
+    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    await apiFetch(`${apiUrl}/api/extension/log-application`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: job.title,
+        company: job.company,
+        apply_url: job.apply_url,
+        lane: job.lane,
+        role: job.role,
+        score: job.score,
+        apply_points: 0,
+        status: 'needs_manual',
+        subject: 'Needs you: ' + (requirements || ['manual steps']).join(', '),
+        message: '',
+        posted_at: job.posted_at,
+      }),
+    });
+  } catch (err) {
+    console.error('[JF] could not record a manual job:', err);
+  }
+}
+
 async function logApplication(job, application) {
   await updateStats({ applied: 1 });
 
@@ -1244,6 +1328,7 @@ async function logApplication(job, application) {
         score: job.score,
         apply_points: job.apply_points,
         posted_at: job.posted_at,
+        status: 'sent',
         subject: application?.subject || '',
         message: application?.cover_letter || application?.message || '',
       }),

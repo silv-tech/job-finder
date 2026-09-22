@@ -235,8 +235,52 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     }
+    // Jobs that need a Loom, a test or an external form. These used to exist
+    // only as a Chrome notification, which disappears and takes the job with it.
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function paintManual() {
+      chrome.runtime.sendMessage({ action: 'getManualQueue' }, (queue) => {
+        const card = document.getElementById('manual-card');
+        const list = document.getElementById('manual-list');
+        if (!card || !list) return;
+        if (!queue || queue.length === 0) {
+          card.classList.add('hidden');
+          return;
+        }
+        card.classList.remove('hidden');
+        document.getElementById('manual-count').textContent = '(' + queue.length + ')';
+        list.innerHTML = queue.map((m) => `
+          <div style="background:#ffffff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">
+            <a href="${esc(m.apply_url)}" target="_blank" rel="noopener"
+               style="font-size:12px;font-weight:600;color:#92400e;text-decoration:none;">${esc(m.title)}</a>
+            <div style="font-size:11px;color:#b45309;padding-top:2px;">
+              ${m.score ? esc(m.score) + '% match &middot; ' : ''}${esc((m.requirements || []).join(', '))}
+            </div>
+            <button class="manual-done" data-url="${esc(m.apply_url)}"
+                    style="margin-top:6px;background:none;border:none;padding:0;font-size:11px;color:#a16207;cursor:pointer;text-decoration:underline;">
+              Done, remove it
+            </button>
+          </div>`).join('');
+        list.querySelectorAll('.manual-done').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            chrome.runtime.sendMessage(
+              { action: 'clearManualJob', apply_url: btn.dataset.url },
+              () => paintManual()
+            );
+          });
+        });
+      });
+    }
+
     paintToday();
+    paintManual();
     setInterval(paintToday, 5000);
+    setInterval(paintManual, 10000);
 
     // Show/hide auto-apply config + countdown timer
     if (config?.autoApply) {
@@ -292,6 +336,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (el) el.textContent = `Last cycle: just now - ${res.status}${res.detail ? ' (' + res.detail + ')' : ''}`;
         }
         paintToday();
+      });
+    });
+
+    document.getElementById('clear-seen-btn').addEventListener('click', () => {
+      const btn = document.getElementById('clear-seen-btn');
+      chrome.runtime.sendMessage({ action: 'clearSeen' }, () => {
+        btn.textContent = 'Cleared. Older posts are eligible again.';
+        setTimeout(() => { btn.textContent = 'Re-check older posts (clear the seen list)'; }, 4000);
       });
     });
 

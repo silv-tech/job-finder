@@ -281,6 +281,20 @@
           <div id="today-mode" style="margin-top:8px;font-size:11px;color:#64748b;"></div>
           <div id="today-last-cycle" style="margin-top:6px;font-size:11px;color:#64748b;"></div>
           <button id="run-now-btn" class="btn btn-secondary" style="margin-top:10px;padding:8px 12px;font-size:12px;">Run a cycle now</button>
+          <button id="clear-seen-btn" style="margin-top:6px;width:100%;background:none;border:none;padding:0;font-size:11px;color:#94a3b8;cursor:pointer;text-decoration:underline;">Re-check older posts (clear the seen list)</button>
+        </div>
+
+        <!-- Jobs the automation could not finish: a Loom video, a skills test,
+             an external form. A Chrome notification disappears, so they are
+             kept here with a link straight to the post. -->
+        <div id="manual-card" class="hidden" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.04em;color:#b45309;text-transform:uppercase;margin-bottom:4px;">
+            Needs you <span id="manual-count"></span>
+          </div>
+          <div style="font-size:11px;color:#92400e;margin-bottom:8px;">
+            Strong matches the automation could not finish. Worth doing by hand.
+          </div>
+          <div id="manual-list" style="display:grid;gap:8px;"></div>
         </div>
 
         <div class="lane-list">
