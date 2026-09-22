@@ -118,6 +118,23 @@
     }
     .input-group input::placeholder { color: #cbd5e1; }
 
+    /* The lane pickers are checkboxes, not text fields. They must sit outside
+       .input-group, whose "input { width: 100% }" rule stretches a checkbox to
+       the full row and shoves its label away. */
+    .lane-list { margin-bottom: 10px; }
+    .lane-list > .lane-title {
+      display: block; font-size: 11px; font-weight: 500; color: #94a3b8; margin-bottom: 6px;
+    }
+    .lane-list .lane-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; font-size: 12px; color: #1e293b; cursor: pointer;
+    }
+    .lane-list .lane-row input[type="checkbox"] {
+      width: 14px; height: 14px; min-width: 14px; padding: 0; margin: 0;
+      accent-color: #4f46e5; cursor: pointer; flex: none;
+    }
+    .lane-list .lane-note { color: #94a3b8; font-size: 11px; }
+
     .status-bar {
       padding: 6px 24px; font-size: 11px; text-align: center;
       border-bottom: 1px solid #f1f5f9; font-weight: 500;
@@ -264,25 +281,28 @@
           <div id="today-mode" style="margin-top:8px;font-size:11px;color:#64748b;"></div>
         </div>
 
-        <div class="input-group">
-          <label>Job types to search (one per cycle, rotating)</label>
-          <div style="display:grid;gap:4px;font-size:12px;color:#1e293b;padding:2px 0 2px;">
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
-              <input type="checkbox" class="lane-toggle" value="developer" checked> Developer / Coding <span style="color:#64748b;">(priority, searched 2x as often)</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
-              <input type="checkbox" class="lane-toggle" value="automations" checked> Automations <span style="color:#64748b;">(Zapier, n8n, AI agents)</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
-              <input type="checkbox" class="lane-toggle" value="management" checked> Management
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
-              <input type="checkbox" class="lane-toggle" value="exec_assistant" checked> Executive Assistant
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
-              <input type="checkbox" class="lane-toggle" value="general_va" checked> General VA / Data Entry
-            </label>
-          </div>
+        <div class="lane-list">
+          <span class="lane-title">Job types to search (one per cycle, rotating)</span>
+          <label class="lane-row">
+            <input type="checkbox" class="lane-toggle" value="developer" checked>
+            <span>Developer / Coding <span class="lane-note">&middot; priority, searched 2x</span></span>
+          </label>
+          <label class="lane-row">
+            <input type="checkbox" class="lane-toggle" value="automations" checked>
+            <span>Automations <span class="lane-note">&middot; Zapier, n8n, AI agents</span></span>
+          </label>
+          <label class="lane-row">
+            <input type="checkbox" class="lane-toggle" value="management" checked>
+            <span>Management</span>
+          </label>
+          <label class="lane-row">
+            <input type="checkbox" class="lane-toggle" value="exec_assistant" checked>
+            <span>Executive Assistant</span>
+          </label>
+          <label class="lane-row">
+            <input type="checkbox" class="lane-toggle" value="general_va" checked>
+            <span>General VA / Data Entry</span>
+          </label>
         </div>
 
         <div class="input-group">
@@ -295,7 +315,7 @@
         </div>
         <div class="input-group">
           <label>Max applications per day</label>
-          <input type="number" id="max-per-day" min="1" max="60" placeholder="15" value="15">
+          <input type="number" id="max-per-day" min="1" max="60" placeholder="10" value="10">
         </div>
         <div class="input-group">
           <label>Ignore posts older than (hours)</label>

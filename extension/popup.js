@@ -194,7 +194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('max-applies').value = config?.maxAppliesPerCycle ?? 5;
     document.getElementById('min-score').value = config?.minApplyScore ?? 60;
     document.getElementById('daily-ap').value = config?.dailyApBudget ?? 10;
-    document.getElementById('max-per-day').value = config?.maxAppliesPerDay ?? 15;
+    document.getElementById('max-per-day').value = config?.maxAppliesPerDay ?? 10;
     document.getElementById('max-job-age').value = config?.maxJobAgeHours ?? 24;
 
     const activeLanes = config?.lanes ?? ['developer', 'automations', 'management', 'exec_assistant', 'general_va'];
@@ -287,7 +287,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
         minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 60)),
         dailyApBudget: Math.max(1, Math.min(60, parseInt(document.getElementById('daily-ap').value) || 10)),
-        maxAppliesPerDay: Math.max(1, Math.min(60, parseInt(document.getElementById('max-per-day').value) || 15)),
+        maxAppliesPerDay: Math.max(1, Math.min(60, parseInt(document.getElementById('max-per-day').value) || 10)),
         maxJobAgeHours: Math.max(1, Math.min(336, parseInt(document.getElementById('max-job-age').value) || 24)),
         lanes: [...document.querySelectorAll('.lane-toggle')].filter((b) => b.checked).map((b) => b.value),
       };

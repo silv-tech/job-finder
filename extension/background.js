@@ -259,6 +259,22 @@ async function isAuthenticated() {
   return !!authToken;
 }
 
+// Lanes added in a later version would otherwise stay switched off forever:
+// the popup ticks each box from the stored list, and an existing config has no
+// entry for a lane that did not exist when it was saved. Add the new ones once.
+const LANES_ADDED_LATER = ['automations'];
+
+async function migrateLanes() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config || !Array.isArray(config.lanes)) return; // defaults already cover it
+  const missing = LANES_ADDED_LATER.filter((k) => !config.lanes.includes(k));
+  if (missing.length === 0) return;
+  // Keep the user's order, and slot each new lane where DEFAULT_CONFIG has it.
+  const merged = DEFAULT_CONFIG.lanes.filter((k) => config.lanes.includes(k) || missing.includes(k));
+  await chrome.storage.local.set({ config: { ...config, lanes: merged } });
+  console.log('[JF] enabled newly added lanes:', missing.join(', '));
+}
+
 // Chrome may drop alarms when the browser restarts, and they used to be
 // created only on install (with the default interval, which also reset the
 // user's interval on every extension update). Make sure both alarms exist and
@@ -291,6 +307,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Also check whenever the service worker wakes up
 ensureAlarms();
+migrateLanes();
 // A fresh worker means any saved run belongs to a worker Chrome shut down
 recoverInterruptedRun();
 
