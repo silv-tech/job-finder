@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
       subject?: string;
       message?: string;
       posted_at?: string;
+      // 'sent' or 'needs_manual' (a Loom video, a trial task, an external form)
+      status?: string;
     };
 
     if (!body.title) {
@@ -40,6 +42,9 @@ export async function POST(req: NextRequest) {
       subject: (body.subject || '').slice(0, 500),
       message: (body.message || '').slice(0, 20000),
       posted_at: (body.posted_at || '').slice(0, 40),
+      // Without this every manual job was recorded as 'sent', so the popup
+      // could not tell a Loom-video job from one that actually went out.
+      status: body.status === 'needs_manual' ? 'needs_manual' : 'sent',
     });
 
     if (error) {
