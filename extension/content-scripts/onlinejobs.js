@@ -188,7 +188,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // How many points this application should spend. Decided server-side by the
   // match score (src/lib/lanes.ts apForScore); 2 only if nothing was supplied.
   function pointsToSpend(job) {
-    return Math.max(1, Math.min(10, parseInt(job && job.apply_points, 10) || 2));
+    // Hard ceiling of 2 per application, by his instruction. Clamped here as
+    // well as server-side so no value from the API can ever overspend.
+    return Math.max(1, Math.min(2, parseInt(job && job.apply_points, 10) || 2));
   }
 
   // The apply page states the remaining Apply Points. Reading the real number

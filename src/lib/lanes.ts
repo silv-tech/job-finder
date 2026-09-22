@@ -201,8 +201,12 @@ export function bestLane(job: { title?: string; description?: string }): LaneSco
 export const AP_INCOME_PER_DAY = 10;
 export const AP_MAX_BALANCE = 60;
 
+// Never more than 2 on a single application, by his instruction. A marginal
+// match still drops to 1, so a weak fit does not cost the same as a strong one.
+// At 10 points earned a day, a 2-point ceiling means 5 applications a day is
+// the sustainable rate.
+export const AP_MAX_PER_APPLICATION = 2;
+
 export function apForScore(score: number): number {
-  if (score >= 85) return 3;
-  if (score >= 70) return 2;
-  return 1;
+  return score >= 70 ? AP_MAX_PER_APPLICATION : 1;
 }
