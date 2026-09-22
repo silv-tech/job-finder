@@ -177,6 +177,41 @@ export function falseToolClaims(lacking: string[], message: string): string[] {
   return found;
 }
 
+// Subject lines. Two real failures to prevent: "General VA with Bookkeeping
+// Support, Leif Soliva", which signs a line the employer can already see the
+// sender of and otherwise just repeats the job title, and "EA ready", which is
+// two words of nothing. A good subject is about THEIR problem.
+function words(s: string): string[] {
+  return (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+export function weakSubject(subject: string, applicantName?: string, jobTitle?: string): string[] {
+  const faults: string[] = [];
+  const subj = (subject || '').trim();
+  const subjWords = words(subj);
+
+  // The sender's name is already on the message.
+  for (const part of words(applicantName || '')) {
+    if (part.length >= 3 && subjWords.includes(part)) {
+      faults.push('it contains the applicant\'s own name');
+      break;
+    }
+  }
+
+  if (subjWords.length > 0 && subjWords.length < 4) {
+    faults.push('it is too short to say anything (' + subjWords.length + ' words)');
+  }
+
+  // Mostly a restatement of the job title.
+  const titleWords = new Set(words(jobTitle || '').filter((w) => w.length >= 3));
+  if (titleWords.size >= 2 && subjWords.length > 0) {
+    const shared = subjWords.filter((w) => titleWords.has(w)).length;
+    if (shared / subjWords.length >= 0.6) faults.push('it just repeats the job title back');
+  }
+
+  return faults;
+}
+
 // Past employers and clients stay anonymous: "in a previous role I ran a team
 // of 30+", not "at Pink Models Agency I ran a team of 30+". His own products
 // are the exception. They are on his public portfolio, they are linked in every
@@ -363,7 +398,7 @@ ${fieldsBlock}
 5. VARY IT. Don't fall into a template. Match length to the post: if it asks several questions, go longer; otherwise stay under about 150 words. Sign off with the first name only.
    - Don't close with a stock line like "Happy to chat / walk through / answer any questions" or "Let me know if you're interested". End with something specific to this post instead: sometimes a short question about their setup, sometimes one concrete next step or a plain closing line. Don't always end with a question.
 
-6. SUBJECT LINE: natural and specific to what they need, something a real person would type (e.g. "Getting your 12-person team off your plate"). Never use the words "application" or "applying", never just the job title, not gimmicky. If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested"). A word the post wants at the start or end of the MESSAGE belongs only there, not in the subject.
+6. SUBJECT LINE: about THEIR problem, not about the applicant. Natural and specific, something a real person would type (e.g. "Getting your 12-person team off your plate", "Automating your call centre's lead pipeline"). NEVER put the applicant's name in it: the employer can already see who sent the message, and it wastes the only line they are guaranteed to read. Never just repeat the job title back at them. Never fewer than four words, "EA ready" says nothing. Never use the words "application" or "applying", not gimmicky. If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested"). A word the post wants at the start or end of the MESSAGE belongs only there, not in the subject.
 
 7. SELF-EDIT BEFORE YOU FINISH. Reread once as a busy hiring manager (would I reply to this?) and once as a spam filter (any banned words, dashes, generic openers, unanswered questions?). Fix it, then give the final version.
 
@@ -699,6 +734,28 @@ Rewrite so no sentence claims past use of them. Do NOT swing the other way and a
       } catch {
         // keep the draft
       }
+    }
+  }
+
+  // The subject is the one line they are guaranteed to read.
+  const subjectFaults = weakSubject(draft.subject || '', profile.name, job.title);
+  if (subjectFaults.length) {
+    const subjPrompt = `${buildPrompt(job, profile, opts)}
+
+=== THE SUBJECT LINE IS WEAK ===
+Here is your draft:
+${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fields: draft.fields, hidden_instructions_found: draft.hidden_instructions_found })}
+
+Its subject is "${draft.subject}", and ${subjectFaults.join(', and ')}. Write a better one: about what THEY need, specific, four words or more, no applicant name, not a repeat of the job title. Change ONLY the subject, leave the message exactly as it is, and return the same JSON shape.`;
+    try {
+      const resubject = await callModel(client, subjPrompt);
+      const stillWeak = weakSubject(resubject.subject || '', profile.name, job.title);
+      if (resubject.subject && stillWeak.length < subjectFaults.length) {
+        draft = { ...draft, subject: resubject.subject };
+      }
+      if (process.env.WRITER_DEBUG) console.log('[subject]', subjectFaults, '->', resubject.subject);
+    } catch {
+      // keep the draft
     }
   }
 
