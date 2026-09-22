@@ -68,16 +68,20 @@ async function recordApBalance(balance) {
 }
 
 // Can we afford to send one more application worth `ap` points right now?
-async function budgetAllows(ap) {
+// `ignoreDaily` skips the self-imposed daily limits only. The real onlinejobs
+// balance is never overridden: spending points he does not have is not a
+// preference, it just fails.
+async function budgetAllows(ap, opts) {
+  const ignoreDaily = !!(opts && opts.ignoreDaily);
   const { config } = await chrome.storage.local.get('config');
   const maxApplies = config && config.maxAppliesPerDay != null ? config.maxAppliesPerDay : DEFAULT_CONFIG.maxAppliesPerDay;
   const apBudget = config && config.dailyApBudget != null ? config.dailyApBudget : DEFAULT_CONFIG.dailyApBudget;
   const reserve = config && config.apReserve != null ? config.apReserve : DEFAULT_CONFIG.apReserve;
   const b = await getBudget();
 
-  if (b.applied >= maxApplies) return { ok: false, reason: 'daily application cap reached (' + b.applied + '/' + maxApplies + ')' };
-  if (b.apSpent + ap > apBudget) return { ok: false, reason: 'daily Apply Point budget spent (' + b.apSpent + '/' + apBudget + ')' };
-  if (b.apBalance != null && b.apBalance - ap < reserve) return { ok: false, reason: 'Apply Point balance too low (' + b.apBalance + ' left)' };
+  if (!ignoreDaily && b.applied >= maxApplies) return { ok: false, reason: 'daily application cap reached (' + b.applied + '/' + maxApplies + ')' };
+  if (!ignoreDaily && b.apSpent + ap > apBudget) return { ok: false, reason: 'daily Apply Point budget spent (' + b.apSpent + '/' + apBudget + ')' };
+  if (b.apBalance != null && b.apBalance - ap < reserve) return { ok: false, reason: 'only ' + b.apBalance + ' Apply Point' + (b.apBalance === 1 ? '' : 's') + ' left on onlinejobs' };
   return { ok: true };
 }
 
@@ -342,23 +346,24 @@ async function recordCycle(status, detail) {
   console.log('[JF] cycle:', status, detail || '');
 }
 
-async function runAutoApplyCycle(trigger) {
+async function runAutoApplyCycle(trigger, opts) {
+  const ignoreDaily = !!(opts && opts.ignoreDaily);
   {
     if (!(await isAuthenticated())) {
-      await recordCycle('not signed in', 'sign in from the extension popup');
+      await recordCycle('Not signed in', 'Sign in from the extension popup.');
       return;
     }
 
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) {
-      await recordCycle('auto-apply is off', 'turn on Auto-Apply Mode');
+      await recordCycle('Auto-apply is off', 'Turn on Auto-Apply Mode.');
       return;
     }
 
     // Nothing to do if today's budget is already spent: don't even open a tab.
-    const spare = await budgetAllows(1);
+    const spare = await budgetAllows(1, { ignoreDaily });
     if (!spare.ok) {
-      await recordCycle('budget stopped it', spare.reason);
+      await recordCycle('Budget stopped it', spare.reason);
       return;
     }
 
@@ -373,7 +378,7 @@ async function runAutoApplyCycle(trigger) {
     // Recorded BEFORE the work, so the specific outcome below replaces it
     // rather than the other way round. Overwriting afterwards destroyed the
     // very diagnosis this exists to give.
-    await recordCycle('searching (' + trigger + ')', search);
+    await recordCycle('Searching', 'Looking for "' + search + '" jobs.');
     const tab = await chrome.tabs.create({ url: searchUrl, active: false });
 
     await waitForTabLoad(tab.id);
@@ -381,7 +386,7 @@ async function runAutoApplyCycle(trigger) {
 
     // With no lanes ticked the search comes from the keyword box, so there is
     // no lane to score against: let the API judge each job against all four.
-    await handleAutoApplyCycle(tab.id, useLanes ? lane : null);
+    await handleAutoApplyCycle(tab.id, useLanes ? lane : null, { ignoreDaily });
 
     // Close the search tab after scanning
     try { await chrome.tabs.remove(tab.id); } catch {}
@@ -389,7 +394,8 @@ async function runAutoApplyCycle(trigger) {
 }
 
 // Full auto-apply cycle: scan page, match jobs, apply to recommended ones
-async function handleAutoApplyCycle(tabId, lane) {
+async function handleAutoApplyCycle(tabId, lane, opts) {
+  const ignoreDaily = !!(opts && opts.ignoreDaily);
   try {
     const { config } = await chrome.storage.local.get('config');
 
@@ -402,14 +408,14 @@ async function handleAutoApplyCycle(tabId, lane) {
       try {
         scrapeResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
       } catch {
-        await recordCycle('could not read the page', 'the search page did not respond');
+        await recordCycle('Could not read the page', 'The search page did not respond.');
         return;
       }
     }
 
     const allJobs = scrapeResult?.jobs || [];
     if (allJobs.length === 0) {
-      await recordCycle('no jobs on the page', 'the search returned nothing');
+      await recordCycle('No jobs on the page', 'That search returned nothing.');
       return;
     }
 
@@ -419,7 +425,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     const unseen = await filterUnseen(allJobs);
     const jobs = filterFresh(unseen, maxAge);
     if (jobs.length === 0) {
-      await recordCycle('nothing new', `${allJobs.length} on the page, all already seen or older than ${maxAge}h`);
+      await recordCycle('Nothing new', `${allJobs.length} on the page, all already seen or older than ${maxAge}h. Try "Re-check older posts".`);
       return;
     }
 
@@ -431,7 +437,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     });
 
     if (!matchRes.ok) {
-      await recordCycle('scoring failed', `the app returned ${matchRes.status}`);
+      await recordCycle('Scoring failed', `The app returned ${matchRes.status}.`);
       return;
     }
     const matchData = await matchRes.json();
@@ -451,7 +457,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     if (recommended.length === 0) {
       const best = Math.max(0, ...(matchData.matches || []).map(m => m.score || 0));
       const note = blocked.length ? `, ${blocked.length} ruled out by the post (${blocked[0].blocked_by.join('/')})` : '';
-      await recordCycle('nothing cleared the bar', `${jobs.length} new, best score ${best}${note}`);
+      await recordCycle('Nothing cleared the bar', `${jobs.length} new, best score ${best}${note}.`);
       return;
     }
 
@@ -473,7 +479,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     for (const job of candidates) {
       if (toApply.length >= perCycle) break;
       const ap = job.apply_points || 1;
-      const allowed = await budgetAllows(plannedAp + ap);
+      const allowed = await budgetAllows(plannedAp + ap, { ignoreDaily });
       if (!allowed.ok) {
         console.log('[JF] stopping this cycle:', allowed.reason);
         break;
@@ -483,7 +489,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     }
 
     if (toApply.length === 0) {
-      await recordCycle('already applied', `${recommended.length} matched but all were applied to before`);
+      await recordCycle('Already applied to all of them', `${recommended.length} matched, every one applied to before.`);
       return;
     }
 
@@ -497,7 +503,7 @@ async function handleAutoApplyCycle(tabId, lane) {
     // Only the ones actually being applied to are marked. Qualifying jobs that
     // did not fit this cycle stay eligible and get picked up next time.
     await markSeen(toApply.map(j => j.apply_url));
-    await recordCycle('applying', `${toApply.length} job(s), ${plannedAp} point(s)` +
+    await recordCycle('Applying', `${toApply.length} job(s), ${plannedAp} point(s)` +
       (blocked.length ? `, ${blocked.length} ruled out by the post` : ''));
     await applyToJobs(toApply);
   } catch {
@@ -772,7 +778,7 @@ Saved to the extension popup.`,
     // 1 sent" with no reason for the other two is what made this hard to debug.
     const tally = outcomes.reduce((a, o) => { a[o] = (a[o] || 0) + 1; return a; }, {});
     const summary = Object.entries(tally).map(([k, n]) => n + ' ' + k).join(', ');
-    await recordCycle('sent ' + appliedCount + ' of ' + plannedCount, summary || 'nothing attempted');
+    await recordCycle('Sent ' + appliedCount + ' of ' + plannedCount, summary || 'Nothing attempted.');
     applyRunning = false;
     release();
     await clearRunState();
@@ -826,7 +832,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // The outcome also goes out as a notification. Opening the search tab can
     // close the popup, and once that happens its script is gone and the reply
     // below reaches nobody: the run looks like it did nothing at all.
-    runAutoApplyCycle('manual').then(
+    runAutoApplyCycle('manual', { ignoreDaily: !!message.ignoreDaily }).then(
       async () => {
         const { lastCycle } = await chrome.storage.local.get('lastCycle');
         if (lastCycle) {

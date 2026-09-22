@@ -390,28 +390,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('min-score').addEventListener('change', () => saveSettings());
     // Waiting for the alarm is not always possible: its first fire is a full
     // interval away and every extension reload resets that clock.
-    document.getElementById('run-now-btn').addEventListener('click', () => {
-      const btn = document.getElementById('run-now-btn');
+    // One handler for both buttons. `ignoreDaily` skips today's self-imposed
+    // limits; the real onlinejobs balance is still respected either way.
+    function runCycle(btn, label, ignoreDaily) {
+      const anyway = document.getElementById('run-anyway-btn');
       btn.disabled = true;
       btn.textContent = 'Running... (a notification will report the result)';
-      chrome.runtime.sendMessage({ action: 'runCycleNow' }, (res) => {
+      chrome.runtime.sendMessage({ action: 'runCycleNow', ignoreDaily }, (res) => {
         btn.disabled = false;
         if (res && res.status) {
-          // Put the outcome on the button itself: the small line below is easy
-          // to miss, and this is the thing that was just clicked.
           btn.textContent = res.status;
-          btn.style.color = /stopped|error|failed/i.test(res.status) ? '#b45309' : '#047857';
+          const stopped = /stopped|error|failed|not signed/i.test(res.status);
+          btn.style.color = stopped ? '#b45309' : '#047857';
           const el = document.getElementById('today-last-cycle');
           if (el) el.textContent = `Last cycle: just now - ${res.status}${res.detail ? ' (' + res.detail + ')' : ''}`;
-          setTimeout(() => {
-            btn.textContent = 'Run a cycle now';
-            btn.style.color = '';
-          }, 10000);
+
+          // Only offer the override when the daily budget was the thing in the
+          // way. If the real balance is out, overriding cannot help.
+          const daily = /daily/i.test(res.detail || '');
+          if (anyway) anyway.classList.toggle('hidden', !(stopped && daily));
+
+          setTimeout(() => { btn.textContent = label; btn.style.color = ''; }, 10000);
         } else {
-          btn.textContent = 'Run a cycle now';
+          btn.textContent = label;
         }
         paintToday();
+        paintReport();
       });
+    }
+
+    document.getElementById('run-now-btn').addEventListener('click', () => {
+      runCycle(document.getElementById('run-now-btn'), 'Run a cycle now', false);
+    });
+
+    document.getElementById('run-anyway-btn').addEventListener('click', () => {
+      runCycle(document.getElementById('run-anyway-btn'), "Run anyway, ignore today's budget", true);
     });
 
     document.getElementById('clear-seen-btn').addEventListener('click', () => {
