@@ -440,10 +440,18 @@ async function handleAutoApplyCycle(tabId, lane) {
     const belowBar = (matchData.matches || []).filter(m => !m.should_apply).map(m => m.apply_url);
     await markSeen(belowBar);
 
+    // Jobs the post itself ruled out ("do not apply unless you have X"). Worth
+    // naming: a high score that was skipped on purpose looks like a bug.
+    const blocked = (matchData.matches || []).filter(m => m.blocked_by && m.blocked_by.length);
+    if (blocked.length) {
+      console.log('[JF] blocked by the post itself:', blocked.map(b => `${b.title} needs ${b.blocked_by.join('/')}`).join(' | '));
+    }
+
     const recommended = (matchData.matches || []).filter(m => m.should_apply);
     if (recommended.length === 0) {
       const best = Math.max(0, ...(matchData.matches || []).map(m => m.score || 0));
-      await recordCycle('nothing cleared the bar', `${jobs.length} new, best score ${best}`);
+      const note = blocked.length ? `, ${blocked.length} ruled out by the post (${blocked[0].blocked_by.join('/')})` : '';
+      await recordCycle('nothing cleared the bar', `${jobs.length} new, best score ${best}${note}`);
       return;
     }
 
@@ -489,7 +497,8 @@ async function handleAutoApplyCycle(tabId, lane) {
     // Only the ones actually being applied to are marked. Qualifying jobs that
     // did not fit this cycle stay eligible and get picked up next time.
     await markSeen(toApply.map(j => j.apply_url));
-    await recordCycle('applying', `${toApply.length} job(s), ${plannedAp} point(s)`);
+    await recordCycle('applying', `${toApply.length} job(s), ${plannedAp} point(s)` +
+      (blocked.length ? `, ${blocked.length} ruled out by the post` : ''));
     await applyToJobs(toApply);
   } catch {
     // Silent fail for background cycle
