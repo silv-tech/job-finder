@@ -24,14 +24,12 @@ export type RoleHighlights = Partial<Record<RoleKey, string>> & {
 
 const ROLE_SIGNALS: Record<RoleKey, RegExp[]> = {
   developer: [
-    /\bdevelopers?\b/, /\bdevelopment\b/, /\bprogrammer\b/, /\bcoder\b/, /\bsoftware engineer\b/,
-    /\bweb ?(developer|dev)\b/, /\bfull[- ]?stack\b/, /\bfront[- ]?end\b/, /\bback[- ]?end\b/,
+    /\bdevelopers?\b/, /\bweb development\b/, /\bsoftware development\b/, /\bprogrammer\b/, /\bcoder\b/,
+    /\bsoftware engineer\b/, /\bweb ?dev\b/, /\bfull[- ]?stack\b/, /\bfront[- ]?end\b/, /\bback[- ]?end\b/,
     /\bhtml\b/, /\bcss\b/, /\bjavascript\b/, /\btypescript\b/, /\breact\b/, /\bnext\.?js\b/,
-    /\bnode(\.js)?\b/, /\bphp\b/, /\bpython\b/, /\blaravel\b/, /\bwordpress\b/, /\bwebflow\b/,
-    /\bwebsites?\b/, /\bweb apps?\b/, /\blanding pages?\b/, /\bresponsive\b/, /\bplugins?\b/,
-    /\bthemes?\b/, /\bdatabases?\b/, /\bsql\b/, /\bsupabase\b/, /\bfirebase\b/, /\bgit(hub)?\b/,
-    /\bdeploy(?:ment|ing)?\b/, /\bhosting\b/, /\bcpanel\b/, /\bdebug(?:ging)?\b/, /\bcod(?:e|ing)\b/,
-    /\be-?commerce\b/, /\bcheckout\b/, /\bpayment (?:gateway|integration)\b/,
+    /\bnode(\.js)?\b/, /\bphp\b/, /\bpython\b/, /\blaravel\b/, /\bwoocommerce\b/, /\bweb apps?\b/,
+    /\bplugins?\b/, /\bsql\b/, /\bsupabase\b/, /\bfirebase\b/, /\bgit(hub)?\b/, /\bcpanel\b/,
+    /\bdebug(?:ging)?\b/, /\bcoding\b/, /\bpayment (?:gateway|integration)\b/,
   ],
   management: [
     /\bmanag(?:er|ement|ing)\b/, /\bteam lead(?:er)?\b/, /\bhead of\b/, /\bsupervis(?:or|e|ing)\b/,
