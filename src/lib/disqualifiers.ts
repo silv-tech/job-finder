@@ -4,7 +4,13 @@
 // who asked us not to. Scoring on keyword overlap cannot see a sentence like
 // that, so it is checked separately and it overrides the score.
 
-// Phrases that introduce a genuine gate, with the requirement following.
+// The bias is towards applying. Lacking experience in a field is not a reason
+// to skip: he can learn it, and AI helps him deliver. Only an explicit
+// prohibition counts, the kind a person wrote on purpose to keep people out:
+// "do not apply if you have not...", "must have experience with...",
+// "X experience is essential". A bare list of required skills is NOT a gate,
+// which is why there is no pattern for "Required: ..." here: that is usually
+// a section heading, and treating it as a gate would skip jobs worth trying.
 const GATE_PATTERNS: RegExp[] = [
   /do not apply (?:if you (?:have not|haven't|don't have|do not have)|unless you (?:have|know))\b([^.!?\n]{0,120})/gi,
   /don't apply (?:if you (?:have not|haven't|don't have)|unless you (?:have|know))\b([^.!?\n]{0,120})/gi,
@@ -12,7 +18,6 @@ const GATE_PATTERNS: RegExp[] = [
   /\b([A-Za-z0-9.+#/& -]{2,40}?) experience is (?:essential|required|a must|mandatory|non-negotiable)/gi,
   /\bmust have (?:prior |proven |hands[- ]on |direct |solid )?experience (?:with|in|using)\b([^.!?\n]{0,80})/gi,
   /\b(?:experience|proficiency) (?:with|in|using)\b([^.!?\n]{0,80})\bis (?:essential|required|mandatory|a must)/gi,
-  /\brequired:\s*([^.!?\n]{0,80})/gi,
 ];
 
 // Things a gate can name that are not a capability we could ever "lack", or
