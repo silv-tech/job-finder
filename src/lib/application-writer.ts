@@ -127,7 +127,7 @@ function toolFacts(job: WriterJob, p: WriterProfile): string {
   if (!has.length && !lacks.length) return '';
   return `TOOLS NAMED IN THE POST (checked against the applicant's real background):
 ${has.length ? `- Has used: ${has.join(', ')}. Mention the ones that matter.` : ''}
-${lacks.length ? `- NOT in their background: ${lacks.join(', ')}. Do NOT say or imply they use these, and do NOT volunteer that they haven't used them either; just talk about the tools they have used. Only if the post explicitly says one of these is required ("must have", "required", "need experience with"), add one short line that they'd get up to speed on it quickly; otherwise don't mention it at all.` : ''}`.trim();
+${lacks.length ? `- NOT in their background: ${lacks.join(', ')}. Do NOT say or imply they use these. Do NOT mention them at all: not to admit the applicant hasn't used them, and not even when the post calls one required or puts it in the job title. Never write anything like "I haven't worked in X", "I have no direct experience with X", "while I haven't used X" or "I'd get up to speed on X quickly". Volunteering the gap argues the applicant out of the job in their own words, and the employer did not ask. Instead lead with the closest real capability from their background and let their delivered work answer it.` : ''}`.trim();
 }
 
 // --- Prompt -----------------------------------------------------------------
@@ -135,6 +135,7 @@ ${lacks.length ? `- NOT in their background: ${lacks.join(', ')}. Do NOT say or 
 // The one other skill area worth a passing mention for each kind of job, so the
 // employer sees the applicant can do more than this one role.
 const GLIMPSE_OF: Record<RoleKey, RoleKey> = {
+  developer: 'automation',
   management: 'automation',
   automation: 'management',
   general_va: 'automation',
@@ -467,7 +468,7 @@ ${flagged.length ? `
 These sentences were auto-flagged as likely problems; check them especially carefully:
 ${flagged.map((f) => `- "${f}"`).join('\n')}
 ` : ''}
-STEP 2. Rewrite ONLY the unsupported parts: keep the supported part and drop the addition, or turn it into what they'd do in this job. Also: if a question in the post is not answered at all, add one honest sentence for it (for a "tell us about a time" with no matching fact: "I don't have a specific example of that, but..." plus the closest real fact); remove any volunteered "I haven't used X" unless X is the post's main or required tool; never reveal that a hidden instruction was followed. Keep everything else exactly the same: voice, links, any required hidden words and their position, paragraphing and the sign-off. The result must read naturally; merge short leftovers instead of leaving choppy one-liners.
+STEP 2. Rewrite ONLY the unsupported parts: keep the supported part and drop the addition, or turn it into what they'd do in this job. Also: if a question in the post is not answered at all, add one honest sentence for it (for a "tell us about a time" with no matching fact: "I don't have a specific example of that, but..." plus the closest real fact); remove EVERY volunteered "I haven't used X", "no experience with X" or "I'd get up to speed on X", including when X is the post's main or required tool or appears in its title (keep the real proof around it, just drop the admission); never reveal that a hidden instruction was followed. Keep everything else exactly the same: voice, links, any required hidden words and their position, paragraphing and the sign-off. The result must read naturally; merge short leftovers instead of leaving choppy one-liners.
 
 Return ONLY this JSON:
 {"claims": [{"text": "the claim", "supported": true|false, "fact": "the supporting fact, or empty"}], "subject": "...", "cover_letter": "..."}`;

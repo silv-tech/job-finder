@@ -165,8 +165,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // review popup.
   let fillStarted = false;
 
-  async function handleFillApplyForm(job) {
+  async function handleFillApplyForm(job, onStage) {
     fillStarted = true;
+    const stage = (text) => { try { if (onStage) onStage(text); } catch (e) { /* caller went away */ } };
+    stage('Reading the form...');
     await sleep(1000);
 
     const formFields = detectFormFields();
@@ -181,7 +183,8 @@ console.log('[JF] Content script loaded on:', window.location.href);
       job.description = pageDesc;
     }
 
-    // Generate application
+    // Generate application (the slow step: one AI call)
+    stage('Writing your application...');
     const application = await chrome.runtime.sendMessage({
       action: 'generateApplication',
       job,
@@ -212,6 +215,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
 
     // Fill the form
+    stage('Filling in your answers...');
     const filled = fillFormFields(formFields, application);
 
     // Fill Apply Points with 2
@@ -1443,21 +1447,43 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
         overlay.querySelector('#jf-autofill')?.addEventListener('click', async () => {
           const btn = overlay.querySelector('#jf-autofill');
-          btn.textContent = 'Filling...';
+          const body = overlay.querySelector('.jf-panel-body');
+          const idleBody = body ? body.innerHTML : '';
+          btn.textContent = 'Working...';
           btn.disabled = true;
-          try {
-            console.log('[JF] Auto-fill job data:', JSON.stringify(job).slice(0, 500));
-            const result = await handleFillApplyForm(job);
-            if (result?.error) {
-              btn.textContent = 'Error: ' + result.error;
-              btn.disabled = false;
-              setTimeout(() => { btn.textContent = 'Auto-Fill Application'; }, 5000);
-            }
-          } catch (err) {
-            console.error('[JF] Auto-fill error:', err);
-            btn.textContent = 'Error - try again';
+
+          // Show which step is running and how long it's been, so a slow AI
+          // call is obviously still alive rather than looking stuck.
+          const startedAt = Date.now();
+          let stageText = 'Reading the form...';
+          const paint = () => {
+            if (!body) return;
+            const secs = Math.round((Date.now() - startedAt) / 1000);
+            body.innerHTML = `
+              <div class="jf-spinner"></div>
+              <p style="margin:0;text-align:center;font-weight:600;">${escapeHtml(stageText)}</p>
+              <p class="jf-status" style="text-align:center;">${secs}s${secs >= 45 ? ' - still working, this one is slow' : ''}</p>
+            `;
+          };
+          paint();
+          const ticker = setInterval(paint, 1000);
+
+          const failed = (label) => {
+            clearInterval(ticker);
+            if (body) body.innerHTML = idleBody;
+            btn.textContent = label;
             btn.disabled = false;
             setTimeout(() => { btn.textContent = 'Auto-Fill Application'; }, 5000);
+          };
+
+          try {
+            console.log('[JF] Auto-fill job data:', JSON.stringify(job).slice(0, 500));
+            const result = await handleFillApplyForm(job, (text) => { stageText = text; paint(); });
+            clearInterval(ticker);
+            if (result?.error) failed('Error: ' + result.error);
+          } catch (err) {
+            console.error('[JF] Auto-fill error:', err);
+            failed('Error - try again');
           }
         });
       }
