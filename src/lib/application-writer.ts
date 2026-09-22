@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { WRITING_MODEL, FACT_CHECK_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
 import { wrapJobPost, JOB_POST_SAFETY_RULES, hasVerbatimCopy } from '@/lib/prompt-safety';
 import { ROLE_LABELS, ROLE_PLAYBOOKS, resumeUrlFor, type RoleHighlights, type RoleKey } from '@/lib/roles';
+import { asksBlock, extractAsks, unansweredAsks } from '@/lib/post-asks';
 
 // One writer for both the extension's auto-fill and the web app's message box,
 // so every application gets the same role focus and human-voice checks.
@@ -188,6 +189,9 @@ ${proof}
     : `=== WHAT THIS JOB IS ===
 Work out what this employer values most from the post, and lead with the applicant's experience that matches it best.`;
 
+  // Everything the post asks applicants to send, by name.
+  const asks = asksBlock(extractAsks(job.description || ''));
+
   const fieldsBlock = opts.formFields?.length
     ? `FORM FIELDS ON THE APPLICATION PAGE (fill each one appropriately):
 ${JSON.stringify(opts.formFields, null, 2)}`
@@ -240,6 +244,8 @@ ${focusBlock}
 
 ${toolFacts(job, p)}
 
+${asks}
+
 ${fieldsBlock}
 
 === HOW TO WRITE THIS ===
@@ -258,6 +264,7 @@ ${fieldsBlock}
    - When you cite a past role or project, restate only what the profile says. Don't add methods, reasons, habits, frequencies or results it doesn't state ("staying accurate meant...", "I had to... since every..."). If the closest example doesn't really fit the question, say so and describe how they'd do it here instead.
    - If the post asks how long or how much they've used a tool, answer directly with what the profile supports (e.g. "Airtable has been one of the integrations in my projects") rather than a disclaimer.
    - Only claim tools, skills and experience that appear in the profile, resume or proof points. If the post names a tool the applicant hasn't used, don't say they have; mention the closest real experience instead.
+   - NEVER describe the applicant's background by what it is NOT. No "my background is in X rather than Y", no "I don't have direct experience in", no "while I haven't worked as a...", no "I'm not a X, but". The employer can see what the résumé says; spelling out the gap only argues him out of the job. State the closest real experience as a positive fact and let it stand on its own. The one exception is a direct question from the post, covered under EMBEDDED QUESTIONS: answer that honestly, but answer it forward ("here's the nearest thing I've done, and here's how I'd handle yours"), never as a bare confession.
    - Don't invent availability, working hours, rates or start dates. If the post asks about hours or time zone, state the applicant's location/time zone from the profile and that they're open to the schedule; don't promise specific hours unless the profile says so.
 
 4. SOUND LIKE A HUMAN, NOT AN AI. Avoid every one of these tells:
@@ -300,6 +307,18 @@ const AI_TELLS: [RegExp, string][] = [
   [/\b(leverag(e|ed|ing)|utiliz(e|ed|ing)|facilitat(e|ed|ing)|streamlin(e|ed|ing)|spearhead(ed)?|orchestrat(e|ed|ing)|synerg(y|ies))\b/i, 'uses AI-sounding verbs (leverage/utilize/streamline/spearhead...)'],
   [/\b(robust|seamless(ly)?|cutting-edge|comprehensive|dynamic|thriving|passionate|tapestry|delve)\b/i, 'uses AI-sounding adjectives (robust/seamless/passionate...)'],
   [/\b(fast-paced|results-driven|detail-oriented)\b/i, 'uses resume buzzwords (fast-paced/results-driven/detail-oriented)'],
+  // Self-disqualifying framing. The tool-level rule already stops "I haven't
+  // used WordPress", but a whole application went out saying "my background is
+  // in operations and development rather than executive support", which argues
+  // him out of the job in his own words. Describing the background by what it
+  // is NOT is the thing to kill, wherever it appears.
+  [/\bmy (?:background|experience) (?:is|lies|sits)\b[^.!?\n]{0,70}\brather than\b/i, 'describes his background as NOT being what the job wants'],
+  [/\bmy (?:background|experience) (?:is|lies) more in\b/i, 'describes his background as NOT being what the job wants'],
+  [/\bi (?:don'?t|do not) have (?:direct|formal|hands[- ]on|professional|any real|much|extensive) (?:experience|background)\b/i, 'volunteers a lack of experience'],
+  [/\bno (?:direct|formal|prior|real|professional) (?:experience|background)\b/i, 'volunteers a lack of experience'],
+  [/\b(?:while|although|though|admittedly) i (?:haven'?t|have not|lack|am not|'?m not)\b/i, 'opens a concession with "while/although I haven\'t"'],
+  [/\bi'?m not (?:a|an|really a|traditionally a)\b[^.!?\n]{0,45}\b(?:but|however)\b/i, 'calls himself not-a-X before the comma'],
+  [/\bmy (?:closest|nearest) (?:match|thing|experience) (?:i can point to|would be)\b/i, 'hedges with "the closest I can point to"'],
   [/\b(furthermore|moreover|that being said|additionally,)\b/i, 'uses essay connectors (furthermore/moreover...)'],
   [/\bnot only\b[^.]{0,80}\bbut also\b/i, 'uses "not only... but also"'],
   [/\bin today's\b/i, 'says "in today\'s..."'],
@@ -537,6 +556,37 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
       if (remaining.length <= tells.length && revised.subject && keptFields) draft = revised;
     } catch {
       // keep the first draft
+    }
+  }
+
+  // Nothing the post explicitly asked for may be left unanswered. The Simpro
+  // post asked for an hourly rate and the reply said "easy to sort out once
+  // we're clear on scope", which an employer reads as ignoring instructions.
+  const postAsks = extractAsks(job.description || '');
+  if (postAsks.length) {
+    const missed = unansweredAsks(postAsks, draft.cover_letter || '');
+    if (missed.length) {
+      const fixPrompt = `${buildPrompt(job, profile, opts)}
+
+=== YOU MISSED SOMETHING THE POST ASKED FOR ===
+Here is your draft:
+${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fields: draft.fields, hidden_instructions_found: draft.hidden_instructions_found })}
+
+It does not answer these, and the post asked for them by name:
+${missed.map((m) => `- ${m}`).join('\n')}
+
+Answer every one of them plainly, in the applicant's own voice, woven into the message rather than bolted on as a list at the end. Keep everything that already works, keep every fact true, keep the links exactly as they are, and return the same JSON shape. If one genuinely does not apply, give the nearest real answer instead of staying silent, and never phrase it as a shortcoming.`;
+      try {
+        const fixed = await callModel(client, fixPrompt);
+        const stillMissing = unansweredAsks(postAsks, fixed.cover_letter || '');
+        const keptFields = Object.keys(draft.fields || {}).every((k) => typeof fixed.fields?.[k] === 'string');
+        if (fixed.subject && keptFields && stillMissing.length < missed.length) draft = fixed;
+        if (process.env.WRITER_DEBUG) {
+          console.log('[asks] missed:', missed, '-> after repair:', stillMissing);
+        }
+      } catch {
+        // keep the draft rather than lose the application
+      }
     }
   }
 
