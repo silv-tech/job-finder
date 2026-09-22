@@ -1,9 +1,10 @@
 // The kinds of jobs the applicant usually targets. Each application is written
 // with one of these as its focus.
-export const ROLE_KEYS = ['management', 'automation', 'general_va', 'admin'] as const;
+export const ROLE_KEYS = ['developer', 'management', 'automation', 'general_va', 'admin'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export const ROLE_LABELS: Record<RoleKey, string> = {
+  developer: 'Developer',
   management: 'Management',
   automation: 'Automation',
   general_va: 'General VA',
@@ -22,6 +23,14 @@ export type RoleHighlights = Partial<Record<RoleKey, string>> & {
 // --- Detecting which kind of role a job is ---------------------------------
 
 const ROLE_SIGNALS: Record<RoleKey, RegExp[]> = {
+  developer: [
+    /\bdevelopers?\b/, /\bweb development\b/, /\bsoftware development\b/, /\bprogrammer\b/, /\bcoder\b/,
+    /\bsoftware engineer\b/, /\bweb ?dev\b/, /\bfull[- ]?stack\b/, /\bfront[- ]?end\b/, /\bback[- ]?end\b/,
+    /\bhtml\b/, /\bcss\b/, /\bjavascript\b/, /\btypescript\b/, /\breact\b/, /\bnext\.?js\b/,
+    /\bnode(\.js)?\b/, /\bphp\b/, /\bpython\b/, /\blaravel\b/, /\bwoocommerce\b/, /\bweb apps?\b/,
+    /\bplugins?\b/, /\bsql\b/, /\bsupabase\b/, /\bfirebase\b/, /\bgit(hub)?\b/, /\bcpanel\b/,
+    /\bdebug(?:ging)?\b/, /\bcoding\b/, /\bpayment (?:gateway|integration)\b/,
+  ],
   management: [
     /\bmanag(?:er|ement|ing)\b/, /\bteam lead(?:er)?\b/, /\bhead of\b/, /\bsupervis(?:or|e|ing)\b/,
     /\bdirector\b/, /\boperations\b/, /\bops\b/, /\bchief of staff\b/, /\bproject manager\b/,
@@ -73,6 +82,12 @@ export function isRoleKey(value: unknown): value is RoleKey {
 // --- What each kind of hiring manager is looking for ------------------------
 
 export const ROLE_PLAYBOOKS: Record<RoleKey, string> = {
+  developer: `This is a DEVELOPER / WEB DEVELOPMENT role. The person hiring wants proof the applicant can build the thing and get it live, not a list of languages.
+- Lead with what they have actually built and delivered: the project, what it does, the stack it was built in, and its real scale or result from the sources (for example a product catalogue, a cart, or a working payment flow).
+- Name the languages, frameworks and tools from the post that the applicant really uses. Do not pad with anything the sources do not show.
+- Show that they own the whole thing: the front end, the back end, deploying it and keeping it running. For a small employer that is worth more than any single framework.
+- If the post names a platform, CMS or framework the applicant has not used, do NOT raise it and do NOT apologise for it. Lead with the closest real work instead (hand-built sites, custom layouts and themes, their own deployments) and let the delivered projects answer it.
+- Concrete and plain. No "passionate about clean code", no buzzword stacks, and never claim years of experience the sources do not state.`,
   management: `This is a MANAGEMENT role. The person hiring wants someone who takes things off their plate and makes a team run without being chased.
 - Lead with the applicant's real leadership: how many people they managed, what they were responsible for, and a result they drove (use the real numbers from the examples, like team size or revenue growth).
 - Show HOW they would manage this team, briefly and concretely (accountability, processes, KPIs, hiring or training, handling problems), picking what the post asks for. Only state methods as past habits if the sources describe them.

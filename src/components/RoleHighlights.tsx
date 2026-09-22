@@ -92,7 +92,7 @@ export default function RoleHighlights() {
         </button>
       </div>
       <p className="text-xs text-slate-400 mb-4">
-        When a job is a management, automation, VA or admin role, the application leads with these. They&apos;re written
+        When a job is a developer, management, automation, VA or admin role, the application leads with these. They&apos;re written
         automatically from your resume and portfolio and refresh when those change. If you edit them, your version is kept.
         {highlights._edited && ' (Edited by you)'}
       </p>

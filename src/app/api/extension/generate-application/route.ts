@@ -28,7 +28,7 @@ function asDraft(value: unknown): Draft | undefined {
 }
 
 // Body: { job, profile?, form_fields?, role?, improve?, avoid? }
-//   role    - force a focus (management | automation | general_va | admin), else detected
+//   role    - force a focus (developer | management | automation | general_va | admin), else detected
 //   improve - { subject, cover_letter }: make this draft better
 //   avoid   - { subject, cover_letter }: write a fresh version unlike this one
 export async function POST(req: NextRequest) {

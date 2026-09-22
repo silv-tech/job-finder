@@ -38,6 +38,9 @@
   width: 380px;
   border-radius: 16px;
   border: 1px solid #e5e7eb;
+  /* The header gradient and footer fill paint to their own square corners,
+     which covered the radius above and made the card look square. */
+  overflow: hidden;
 }
 
 .jf-panel-header {
