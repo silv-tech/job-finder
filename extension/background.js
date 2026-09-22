@@ -5,7 +5,7 @@ const DEFAULT_CONFIG = {
   autoApply: false,
   scanInterval: 10,
   // The four kinds of job worth applying to, searched one per cycle.
-  lanes: ['developer', 'management', 'exec_assistant', 'general_va'],
+  lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
   // A job post is a drop: the value is in being early. Anything older than this
   // has already been buried by other applicants, so don't spend a point on it.
   maxJobAgeHours: 24,
@@ -31,6 +31,7 @@ const DEFAULT_CONFIG = {
 // server-side in src/lib/lanes.ts; this is only the search text.
 const LANE_SEARCHES = {
   developer: ['web developer', 'full stack developer', 'javascript developer', 'ai automation developer'],
+  automations: ['automation', 'zapier automation', 'n8n automation', 'ai automation specialist'],
   management: ['operations manager', 'team manager', 'project manager'],
   exec_assistant: ['executive assistant', 'chief of staff', 'right hand assistant'],
   general_va: ['virtual assistant', 'data entry', 'admin assistant'],

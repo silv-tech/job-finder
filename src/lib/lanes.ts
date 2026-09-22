@@ -5,7 +5,7 @@ import { detectRole, type RoleKey } from '@/lib/roles';
 // profile's skills array, so a score means the same thing every run and can be
 // tested without a database.
 
-export const LANE_KEYS = ['developer', 'management', 'exec_assistant', 'general_va'] as const;
+export const LANE_KEYS = ['developer', 'automations', 'management', 'exec_assistant', 'general_va'] as const;
 export type LaneKey = (typeof LANE_KEYS)[number];
 
 export interface Lane {
@@ -44,6 +44,26 @@ export const LANES: Record<LaneKey, Lane> = {
     titleSignals: [
       /\bdevelopers?\b/, /\bprogrammer\b/, /\bcoder\b/, /\bsoftware engineer\b/, /\bweb ?dev\b/,
       /\bfull[- ]?stack\b/, /\bfront[- ]?end\b/, /\bback[- ]?end\b/, /\bautomation\b/, /\bai\b/,
+    ],
+    minScore: 60,
+  },
+
+  automations: {
+    key: 'automations',
+    label: 'Automations',
+    role: 'automation',
+    searches: ['automation', 'zapier automation', 'n8n automation', 'ai automation specialist'],
+    signals: [
+      /\bzapier\b/, /\bmake\.com\b/, /\bintegromat\b/, /\bn8n\b/, /\bgo ?high ?level\b/, /\bghl\b/,
+      /\bairtable\b/, /\bapps script\b/, /\bno-?code\b/, /\blow-?code\b/, /\bworkflows?\b/,
+      /\bautomat(?:e|ed|ion|ions)\b/, /\bintegrations?\b/, /\bwebhooks?\b/, /\bapis?\b/, /\bzaps?\b/,
+      /\bai agents?\b/, /\bchatbots?\b/, /\bclaude\b/, /\bopenai\b/, /\bgpt-?4?\b/, /\bllm\b/,
+      /\bprompt engineering\b/, /\bcrm\b/, /\bhubspot\b/, /\bpipedrive\b/, /\bscraping\b/,
+      /\bscripts?\b/, /\bnode(\.js)?\b/, /\bpython\b/, /\bgoogle sheets\b/, /\bdata pipeline\b/,
+    ],
+    titleSignals: [
+      /\bautomation\b/, /\bautomate\b/, /\bintegration\b/, /\bzapier\b/, /\bn8n\b/, /\bmake\b/,
+      /\bworkflow\b/, /\bai\b/, /\bops\b/, /\bno-?code\b/,
     ],
     minScore: 60,
   },

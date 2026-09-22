@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('max-per-day').value = config?.maxAppliesPerDay ?? 15;
     document.getElementById('max-job-age').value = config?.maxJobAgeHours ?? 24;
 
-    const activeLanes = config?.lanes ?? ['developer', 'management', 'exec_assistant', 'general_va'];
+    const activeLanes = config?.lanes ?? ['developer', 'automations', 'management', 'exec_assistant', 'general_va'];
     document.querySelectorAll('.lane-toggle').forEach((box) => {
       box.checked = activeLanes.includes(box.value);
     });
@@ -205,6 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Today's numbers, straight from the budget the cycle actually enforces.
     const LANE_NAMES = {
       developer: 'Developer',
+      automations: 'Automations',
       management: 'Management',
       exec_assistant: 'Exec Assistant',
       general_va: 'General VA',
