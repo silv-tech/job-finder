@@ -73,12 +73,20 @@ export const LANES: Record<LaneKey, Lane> = {
     label: 'Management',
     role: 'management',
     searches: ['operations manager', 'team manager', 'project manager'],
+    // Deliberately narrow. Words like "team", "process", "training" and
+    // "deadlines" appear in almost every job post, so counting them passed 20
+    // of 23 fresh listings and turned this lane into a sprayer. A hit here has
+    // to mean the job actually runs people or operations, not that it mentions
+    // a team in passing.
     signals: [
-      /\bmanag(?:e|er|ement|ing)\b/, /\bteam\b/, /\blead(?:er|ership)?\b/, /\bsupervis(?:e|or|ing)\b/,
-      /\boversee\b/, /\boperations\b/, /\bhir(?:e|ing)\b/, /\btrain(?:ing)?\b/, /\bkpis?\b/,
-      /\bprocess(?:es)?\b/, /\bsop\b/, /\bdelegate\b/, /\baccountab(?:le|ility)\b/, /\bscal(?:e|ing)\b/,
-      /\bperformance\b/, /\bdirector\b/, /\bchief of staff\b/, /\bintegrator\b/, /\bworkflow\b/,
-      /\bproject manag/, /\bdeadlines?\b/, /\bremote team\b/,
+      /\bmanage (?:a|the|our|their) team\b/, /\bteam of \d+/, /\bdirect reports?\b/,
+      /\bteam lead(?:er)?\b/, /\bsupervis(?:e|or|ing|ion)\b/, /\boversee\b/, /\boversight\b/,
+      /\bhir(?:e|ing)\b/, /\bonboard(?:ing)?\b/, /\bkpis?\b/, /\bsops?\b/,
+      /\bdelegat(?:e|ion|ing)\b/, /\baccountab(?:le|ility)\b/, /\bperformance (?:review|management)\b/,
+      /\bone[- ]on[- ]ones?\b/, /\bheadcount\b/, /\bp&l\b/, /\bbudget\b/, /\bdepartment\b/,
+      /\bstaff\b/, /\bchief of staff\b/, /\bintegrator\b/, /\bproject manag/,
+      /\bscal(?:e|ing) (?:the|our|a) team\b/, /\bpeople management\b/, /\boperations manager\b/,
+      /\bstandard operating procedure/, /\bprocess improvement\b/, /\bteam performance\b/,
     ],
     titleSignals: [
       /\bmanager\b/, /\bmanagement\b/, /\bteam lead(?:er)?\b/, /\bsupervisor\b/, /\bdirector\b/,
