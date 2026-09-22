@@ -108,6 +108,24 @@ const KNOWN_TOOLS: [string, RegExp][] = [
 
 // Which tools the post names, and whether the applicant's own material shows
 // them. Returned as a prompt block so the model can't claim tools on a hunch.
+export function lackingTools(job: WriterJob, p: WriterProfile): string[] {
+  const post = [job.title, job.description, (job.skills || []).join(' ')]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const mine = [
+    p.resume_text,
+    p.bio,
+    p.headline,
+    (p.skills || []).join(' '),
+    ...Object.values(p.role_highlights || {}).filter((v) => typeof v === 'string'),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return KNOWN_TOOLS.filter(([, re]) => re.test(post) && !re.test(mine)).map(([name]) => name);
+}
+
 function toolFacts(job: WriterJob, p: WriterProfile): string {
   const post = `${job.title || ''}\n${job.description || ''}\n${(job.skills || []).join(' ')}`.toLowerCase();
   const mine = [
@@ -128,7 +146,35 @@ function toolFacts(job: WriterJob, p: WriterProfile): string {
   if (!has.length && !lacks.length) return '';
   return `TOOLS NAMED IN THE POST (checked against the applicant's real background):
 ${has.length ? `- Has used: ${has.join(', ')}. Mention the ones that matter.` : ''}
-${lacks.length ? `- NOT in their background: ${lacks.join(', ')}. Do NOT say or imply they use these. Do NOT mention them at all: not to admit the applicant hasn't used them, and not even when the post calls one required or puts it in the job title. Never write anything like "I haven't worked in X", "I have no direct experience with X", "while I haven't used X" or "I'd get up to speed on X quickly". Volunteering the gap argues the applicant out of the job in their own words, and the employer did not ask. Instead lead with the closest real capability from their background and let their delivered work answer it.` : ''}`.trim();
+${lacks.length ? `- NOT in their background: ${lacks.join(', ')}.
+  Two rules, and they pull in opposite directions, so hold both.
+  (a) Never claim to have used these. Not "I've worked with X", not "I've used X for years". That is the one thing an employer can check in five minutes, and being caught costs the job.
+  (b) Never mention the gap either. Not "I haven't used X", not "no direct experience with X", not "I'd get up to speed on X quickly", and not even when the post calls it required or puts it in the title. The employer did not ask, and saying it argues the applicant out of the job in their own words.
+  What to do instead: write about the CAPABILITY, not the credential. Name the closest thing they have actually BUILT, and say plainly that they can deliver what this post needs. "I've built a multi-tenant white-label platform with its own pipelines and tracking, so this is the kind of system I work in" is true, strong, and survives an interview, where "I've used X for years" does not. A tool is configuration; the hard part is the system underneath, and they have built the system. Be confident and concrete, never apologetic, never boastful about the tool itself.` : ''}`.trim();
+}
+
+// The prompt is told to sound confident about tools the applicant has never
+// used, which is right, but confidence can slide into "I've used X". That claim
+// is checkable in minutes and losing the job over it is the whole risk. So the
+// output is inspected: does the message assert USAGE of a tool we know is not
+// in their background? Talking about the tool is fine; claiming to have run it
+// is not.
+const USAGE_CLAIM =
+  /\b(?:i(?:'ve| have)?\s+(?:been\s+)?(?:used|using|use|worked\s+with|working\s+with|built\s+(?:with|in)|run|running|ran|managed|managing|set\s+up|setting\s+up|configured|configuring|administered|handled)|my\s+(?:experience|background|work)\s+(?:with|in|using)|experience\s+(?:with|in|using)|years\s+(?:with|of|using))\b/i;
+
+export function falseToolClaims(lacking: string[], message: string): string[] {
+  const text = message || '';
+  const found: string[] = [];
+  for (const tool of lacking) {
+    // Where is the tool mentioned, and what comes just before it?
+    const re = new RegExp(tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const before = text.slice(Math.max(0, m.index - 70), m.index);
+      if (USAGE_CLAIM.test(before) && !found.includes(tool)) found.push(tool);
+    }
+  }
+  return found;
 }
 
 // --- Prompt -----------------------------------------------------------------
@@ -586,6 +632,32 @@ Answer every one of them plainly, in the applicant's own voice, woven into the m
         }
       } catch {
         // keep the draft rather than lose the application
+      }
+    }
+  }
+
+  // Last line of defence on tools he has never used: the message may talk
+  // about them, but it may not claim to have run them.
+  const lacking = lackingTools(job, profile);
+  if (lacking.length) {
+    const claimed = falseToolClaims(lacking, draft.cover_letter || '');
+    if (claimed.length) {
+      const stripPrompt = `${buildPrompt(job, profile, opts)}
+
+=== YOU CLAIMED SOMETHING THAT IS NOT TRUE ===
+Here is your draft:
+${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fields: draft.fields, hidden_instructions_found: draft.hidden_instructions_found })}
+
+It says or implies the applicant has USED these, and they never have: ${claimed.join(', ')}.
+Rewrite so no sentence claims past use of them. Do NOT swing the other way and admit a gap either: no "I haven't used", no "no direct experience", no "I'd get up to speed". Instead say what they have actually BUILT that makes them able to deliver this, and say they can deliver it. Keep everything else, keep the links exactly, and return the same JSON shape.`;
+      try {
+        const stripped = await callModel(client, stripPrompt);
+        const still = falseToolClaims(lacking, stripped.cover_letter || '');
+        const keptFields = Object.keys(draft.fields || {}).every((k) => typeof stripped.fields?.[k] === 'string');
+        if (stripped.subject && keptFields && still.length < claimed.length) draft = stripped;
+        if (process.env.WRITER_DEBUG) console.log('[tools] claimed:', claimed, '-> after:', still);
+      } catch {
+        // keep the draft
       }
     }
   }
