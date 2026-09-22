@@ -264,11 +264,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div style="font-size:11px;color:#b45309;padding-top:2px;">
               ${m.score ? esc(m.score) + '% match &middot; ' : ''}${esc((m.requirements || []).join(', '))}
             </div>
+            ${m.message ? `
+              <button class="manual-copy" data-i="${queue.indexOf(m)}"
+                      style="margin-top:6px;display:block;width:100%;background:#ffffff;border:1px solid #fbbf24;border-radius:6px;padding:5px;font-size:11px;color:#92400e;cursor:pointer;">
+                Copy the drafted message
+              </button>` : ''}
             <button class="manual-done" data-url="${esc(m.apply_url)}"
                     style="margin-top:6px;background:none;border:none;padding:0;font-size:11px;color:#a16207;cursor:pointer;text-decoration:underline;">
               Done, remove it
             </button>
           </div>`).join('');
+        // The message is already written; he only has to record the video.
+        list.querySelectorAll('.manual-copy').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const item = queue[Number(btn.dataset.i)];
+            if (!item) return;
+            try {
+              await navigator.clipboard.writeText(item.message || '');
+              btn.textContent = 'Copied';
+            } catch {
+              btn.textContent = 'Could not copy';
+            }
+            setTimeout(() => { btn.textContent = 'Copy the drafted message'; }, 4000);
+          });
+        });
+
         list.querySelectorAll('.manual-done').forEach((btn) => {
           btn.addEventListener('click', () => {
             chrome.runtime.sendMessage(

@@ -133,7 +133,16 @@ console.log('[JF] Content script loaded on:', window.location.href);
     const application = await chrome.runtime.sendMessage({
       action: 'generateApplication', job, formFields,
     });
-    if (application.manual_required) return { success: false, manual_required: true, requirements: application.requirements };
+    if (application.manual_required) {
+      // Not sendable automatically, but the draft is still useful: he sends it
+      // by hand once he has recorded the video.
+      return {
+        success: false,
+        manual_required: true,
+        requirements: application.requirements,
+        application: { subject: application.subject, cover_letter: application.cover_letter },
+      };
+    }
     if (application.error) return { success: false, error: application.error };
 
     fillFormFields(formFields, application);
@@ -250,11 +259,49 @@ console.log('[JF] Content script loaded on:', window.location.href);
             <ul style="margin:0;padding-left:16px;font-size:13px;color:#1e293b;">
               ${application.requirements.map(r => `<li style="margin-bottom:4px;">${escapeHtml(r)}</li>`).join('')}
             </ul>
-            <p class="jf-status" style="margin-top:12px;">You'll need to handle this one yourself.</p>
+            <p class="jf-status" style="margin-top:12px;">Your application is written below. Record the video, then paste this in and send.</p>
+            ${application.cover_letter ? `
+              <div style="margin-top:10px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">Subject</div>
+                <div style="font-size:13px;color:#0f172a;padding:2px 0 8px;">${escapeHtml(application.subject || '')}</div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase;">Message</div>
+                <div id="jf-manual-msg" style="font-size:12px;color:#1e293b;line-height:1.5;white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-top:3px;max-height:200px;overflow-y:auto;">${escapeHtml(application.cover_letter)}</div>
+              </div>` : ''}
           </div>
+          ${application.cover_letter ? `
+            <div class="jf-panel-footer">
+              <button id="jf-copy-manual" class="jf-btn jf-btn-apply" style="flex:1;justify-content:center;">Copy the message</button>
+            </div>` : ''}
         </div>
       `);
-      return { success: false, manual_required: true };
+
+      // Copy straight to the clipboard: he is about to paste it by hand.
+      overlay.querySelector('#jf-copy-manual')?.addEventListener('click', async () => {
+        const btn = overlay.querySelector('#jf-copy-manual');
+        try {
+          await navigator.clipboard.writeText(application.cover_letter || '');
+          btn.textContent = 'Copied';
+        } catch {
+          // Clipboard can be refused; select it instead so Ctrl+C works.
+          const el = overlay.querySelector('#jf-manual-msg');
+          if (el) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+          btn.textContent = 'Selected, press Ctrl+C';
+        }
+        setTimeout(() => { btn.textContent = 'Copy the message'; }, 4000);
+      });
+
+      return {
+        success: false,
+        manual_required: true,
+        requirements: application.requirements,
+        application: { subject: application.subject, cover_letter: application.cover_letter },
+      };
     }
 
     if (application.error) {

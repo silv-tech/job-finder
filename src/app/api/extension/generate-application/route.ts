@@ -42,15 +42,15 @@ export async function POST(req: NextRequest) {
     const job = body.job || {};
     const formFields: FormField[] = Array.isArray(body.form_fields) ? body.form_fields : [];
 
-    // Jobs that need a human (video, code test, live call) can't be automated.
+    // Jobs that need a human (video, code test, live call) can't be SENT
+    // automatically, but the message is still worth writing: he records the
+    // video himself and sends the application by hand, and a drafted message
+    // is most of that work. So this no longer returns early. It marks the
+    // response, and the extension declines to send while keeping the draft.
     const manualCheck = detectManualRequirements(job.description || '');
-    if (manualCheck.hasManual) {
-      return NextResponse.json({
-        manual_required: true,
-        requirements: manualCheck.requirements,
-        error: 'This job requires manual action: ' + manualCheck.requirements.join(', '),
-      });
-    }
+    const manualInfo = manualCheck.hasManual
+      ? { manual_required: true, requirements: manualCheck.requirements }
+      : {};
 
     // 'general' = the user chose no special focus; otherwise their choice or detected
     const role: RoleKey | null =
@@ -99,6 +99,7 @@ ${profile.phone || ''}`.trim());
         fields,
         hidden_instructions_found: null,
         ...roleInfo,
+        ...manualInfo,
       });
     }
 
@@ -108,7 +109,7 @@ ${profile.phone || ''}`.trim());
       improve: asDraft(body.improve),
       avoid: asDraft(body.avoid),
     });
-    return NextResponse.json({ ...application, ...roleInfo });
+    return NextResponse.json({ ...application, ...roleInfo, ...manualInfo });
   } catch (err) {
     if (err instanceof WriterError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

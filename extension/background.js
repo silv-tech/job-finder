@@ -741,12 +741,12 @@ async function applyToJobs(jobs) {
           // A Chrome notification vanishes and the job is then lost. Jobs that
           // ask for a Loom, a test or a form are often the serious postings, so
           // keep them somewhere he can come back to.
-          await queueManual(job, fillResult.requirements);
+          await queueManual(job, fillResult.requirements, fillResult.application);
           chrome.notifications.create({
             type: 'basic',
             title: 'Needs you: ' + job.title.slice(0, 40),
             message: `${(fillResult.requirements || ['manual steps']).join(', ')}
-Saved to the extension popup.`,
+The message is drafted and waiting in the popup.`,
             iconUrl: 'icons/icon128.png',
           });
         } else if (fillResult?.success) {
@@ -1328,7 +1328,7 @@ function sleep(ms) {
 // Jobs the automation could not finish: a Loom video, a skills test, an
 // external form. Kept locally so the popup can list them, and recorded server
 // side so the end-of-day report can too.
-async function queueManual(job, requirements) {
+async function queueManual(job, requirements, application) {
   const { manualQueue = [] } = await chrome.storage.local.get('manualQueue');
   if (!manualQueue.some((m) => m.apply_url === job.apply_url)) {
     manualQueue.unshift({
@@ -1338,6 +1338,11 @@ async function queueManual(job, requirements) {
       lane: job.lane || '',
       score: job.score || null,
       requirements: requirements || ['manual steps'],
+      // The message is written even though it cannot be sent automatically: he
+      // records the video himself and sends by hand, and the draft is most of
+      // that work already done.
+      subject: (application && application.subject) || '',
+      message: (application && (application.cover_letter || application.message)) || '',
       at: new Date().toISOString(),
     });
     await chrome.storage.local.set({ manualQueue: manualQueue.slice(0, 50) });
@@ -1357,8 +1362,9 @@ async function queueManual(job, requirements) {
         score: job.score,
         apply_points: 0,
         status: 'needs_manual',
-        subject: 'Needs you: ' + (requirements || ['manual steps']).join(', '),
-        message: '',
+        subject: (application && application.subject)
+          || ('Needs you: ' + (requirements || ['manual steps']).join(', ')),
+        message: (application && (application.cover_letter || application.message)) || '',
         posted_at: job.posted_at,
       }),
     });
