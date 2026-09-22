@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       subject: application.subject,
       body: application.cover_letter,
+      fact_checked: application.fact_checked,
       role,
       role_label: role ? ROLE_LABELS[role] : 'General',
       roles: ROLE_KEYS.map((key) => ({ key, label: ROLE_LABELS[key] })),

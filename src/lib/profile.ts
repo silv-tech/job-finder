@@ -18,7 +18,7 @@ export interface UserProfile {
 
 const DEFAULT_PROFILE: UserProfile = {
   name: 'Leif Soliva',
-  email: 'solivaaldon@gmail.com',
+  email: 'leif@forgeaiagent.com',
   phone: '',
   portfolio_url: 'https://dlvasolutions.com/portfolio/',
   linkedin_url: 'https://www.linkedin.com/in/leifsoliva/',
