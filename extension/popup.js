@@ -190,9 +190,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('review-toggle').checked = config?.reviewBeforeSend !== false;
     document.getElementById('auto-apply-toggle').checked = config?.autoApply || false;
     document.getElementById('auto-apply-keywords').value = config?.autoApplyKeywords || '';
-    document.getElementById('scan-interval-visible').value = config?.scanInterval || 5;
-    document.getElementById('max-applies').value = config?.maxAppliesPerCycle || 5;
-    document.getElementById('min-score').value = config?.minApplyScore || 55;
+    document.getElementById('scan-interval-visible').value = config?.scanInterval ?? 10;
+    document.getElementById('max-applies').value = config?.maxAppliesPerCycle ?? 5;
+    document.getElementById('min-score').value = config?.minApplyScore ?? 60;
+    document.getElementById('daily-ap').value = config?.dailyApBudget ?? 10;
+    document.getElementById('max-per-day').value = config?.maxAppliesPerDay ?? 15;
+    document.getElementById('max-job-age').value = config?.maxJobAgeHours ?? 24;
+
+    const activeLanes = config?.lanes ?? ['developer', 'management', 'exec_assistant', 'general_va'];
+    document.querySelectorAll('.lane-toggle').forEach((box) => {
+      box.checked = activeLanes.includes(box.value);
+    });
+
+    // Today's numbers, straight from the budget the cycle actually enforces.
+    const LANE_NAMES = {
+      developer: 'Developer',
+      management: 'Management',
+      exec_assistant: 'Exec Assistant',
+      general_va: 'General VA',
+    };
+    function paintToday() {
+      chrome.runtime.sendMessage({ action: 'getBudget' }, (b) => {
+        if (!b) return;
+        const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+        set('today-applied', `${b.applied} / ${b.maxAppliesPerDay}`);
+        set('today-points', `${b.apSpent} / ${b.dailyApBudget}`);
+        set('today-balance', b.apBalance == null ? 'not read yet' : String(b.apBalance));
+        set('today-next-lane', LANE_NAMES[b.nextLane] || b.nextLane || '-');
+        const reviewing = document.getElementById('review-toggle').checked;
+        set('today-mode', reviewing
+          ? 'Review mode: matches are prepared and you get a notification. Nothing sends on its own.'
+          : 'Auto-send is ON. Applications go out without review.');
+      });
+    }
+    paintToday();
+    setInterval(paintToday, 5000);
 
     // Show/hide auto-apply config + countdown timer
     if (config?.autoApply) {
@@ -234,6 +266,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings());
     document.getElementById('max-applies').addEventListener('change', () => saveSettings());
     document.getElementById('min-score').addEventListener('change', () => saveSettings());
+    document.getElementById('daily-ap').addEventListener('change', () => saveSettings());
+    document.getElementById('max-per-day').addEventListener('change', () => saveSettings());
+    document.getElementById('max-job-age').addEventListener('change', () => saveSettings());
+    document.querySelectorAll('.lane-toggle').forEach((box) => {
+      box.addEventListener('change', () => saveSettings());
+    });
 
     // Sends only the settings shown in the popup; the background merges them
     // into the latest stored config so a synced profile is never overwritten.
@@ -246,7 +284,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         apiUrl: document.getElementById('api-url').value.replace(/\/$/, ''),
         scanInterval,
         maxAppliesPerCycle: Math.max(1, Math.min(20, parseInt(document.getElementById('max-applies').value) || 5)),
-        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 55)),
+        minApplyScore: Math.max(10, Math.min(100, parseInt(document.getElementById('min-score').value) || 60)),
+        dailyApBudget: Math.max(1, Math.min(60, parseInt(document.getElementById('daily-ap').value) || 10)),
+        maxAppliesPerDay: Math.max(1, Math.min(60, parseInt(document.getElementById('max-per-day').value) || 15)),
+        maxJobAgeHours: Math.max(1, Math.min(336, parseInt(document.getElementById('max-job-age').value) || 24)),
+        lanes: [...document.querySelectorAll('.lane-toggle')].filter((b) => b.checked).map((b) => b.value),
       };
       // Update the hidden scan-interval too
       document.getElementById('scan-interval').value = scanInterval;

@@ -326,7 +326,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await waitForTabLoad(tab.id);
     await sleep(3000); // Let JS render
 
-    await handleAutoApplyCycle(tab.id, lane);
+    // With no lanes ticked the search comes from the keyword box, so there is
+    // no lane to score against: let the API judge each job against all four.
+    await handleAutoApplyCycle(tab.id, useLanes ? lane : null);
 
     // Close the search tab after scanning
     try { await chrome.tabs.remove(tab.id); } catch {}
@@ -697,6 +699,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'updateConfig') {
     mergeConfig(message.config).then(() => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (message.action === 'getBudget') {
+    (async () => {
+      const b = await getBudget();
+      const { config } = await chrome.storage.local.get('config');
+      const lanes = (config && config.lanes && config.lanes.length) ? config.lanes : DEFAULT_CONFIG.lanes;
+      const order = laneOrder(lanes);
+      const stored = await chrome.storage.local.get('laneCursor');
+      const cursor = stored.laneCursor || 0;
+      const nextLane = order[cursor % order.length];
+      sendResponse({
+        applied: b.applied,
+        apSpent: b.apSpent,
+        apBalance: b.apBalance,
+        day: b.day,
+        nextLane,
+        dailyApBudget: config?.dailyApBudget ?? DEFAULT_CONFIG.dailyApBudget,
+        maxAppliesPerDay: config?.maxAppliesPerDay ?? DEFAULT_CONFIG.maxAppliesPerDay,
+      });
+    })();
     return true;
   }
 

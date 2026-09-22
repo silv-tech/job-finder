@@ -250,21 +250,65 @@
       </div>
       <div id="auto-apply-config" class="hidden" style="padding:10px 0 4px;">
         <div id="auto-apply-timer" style="text-align:center;padding:8px 0 12px;font-size:12px;color:#64748b;"></div>
-        <div class="input-group">
-          <label>Search keywords (what jobs to look for)</label>
-          <input type="text" id="auto-apply-keywords" placeholder="e.g. AI automation, React developer">
+
+        <!-- Today at a glance. Apply Points refill at 10/day and cap at 60, so
+             this is the number that actually governs how much can run. -->
+        <div id="today-card" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.04em;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Today</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;color:#1e293b;">
+            <div>Applications</div><div id="today-applied" style="text-align:right;font-weight:600;">-</div>
+            <div>Apply Points spent</div><div id="today-points" style="text-align:right;font-weight:600;">-</div>
+            <div>Points left</div><div id="today-balance" style="text-align:right;font-weight:600;">-</div>
+            <div>Next search</div><div id="today-next-lane" style="text-align:right;font-weight:600;">-</div>
+          </div>
+          <div id="today-mode" style="margin-top:8px;font-size:11px;color:#64748b;"></div>
         </div>
+
+        <div class="input-group">
+          <label>Job types to search (one per cycle, rotating)</label>
+          <div style="display:grid;gap:4px;font-size:12px;color:#1e293b;padding:2px 0 2px;">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+              <input type="checkbox" class="lane-toggle" value="developer" checked> Developer / Coding <span style="color:#64748b;">(priority, searched 2x as often)</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+              <input type="checkbox" class="lane-toggle" value="management" checked> Management
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+              <input type="checkbox" class="lane-toggle" value="exec_assistant" checked> Executive Assistant
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+              <input type="checkbox" class="lane-toggle" value="general_va" checked> General VA / Data Entry
+            </label>
+          </div>
+        </div>
+
         <div class="input-group">
           <label>Scan every (minutes)</label>
-          <input type="number" id="scan-interval-visible" min="5" max="1440" placeholder="5" value="5">
+          <input type="number" id="scan-interval-visible" min="5" max="1440" placeholder="10" value="10">
+        </div>
+        <div class="input-group">
+          <label>Apply Points per day (you earn 10/day)</label>
+          <input type="number" id="daily-ap" min="1" max="60" placeholder="10" value="10">
+        </div>
+        <div class="input-group">
+          <label>Max applications per day</label>
+          <input type="number" id="max-per-day" min="1" max="60" placeholder="15" value="15">
+        </div>
+        <div class="input-group">
+          <label>Ignore posts older than (hours)</label>
+          <input type="number" id="max-job-age" min="1" max="336" placeholder="24" value="24">
+        </div>
+        <div class="input-group">
+          <label>Min match score to apply (%)</label>
+          <input type="number" id="min-score" min="10" max="100" placeholder="60" value="60">
         </div>
         <div class="input-group">
           <label>Max applications per cycle</label>
           <input type="number" id="max-applies" min="1" max="20" placeholder="5" value="5">
         </div>
         <div class="input-group">
-          <label>Min match score to apply (%)</label>
-          <input type="number" id="min-score" min="10" max="100" placeholder="40" value="40">
+          <label>Search keywords (leave empty to use the job types above)</label>
+          <input type="text" id="auto-apply-keywords" placeholder="Only used if no job types are ticked">
         </div>
       </div>
       <button class="btn btn-secondary" id="sync-profile-btn" style="margin-top: 8px;">Sync Profile from App</button>
