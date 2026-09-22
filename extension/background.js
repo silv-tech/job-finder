@@ -319,15 +319,37 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   if (alarm.name === 'autoScan') {
-    if (!(await isAuthenticated())) return;
+    await runAutoApplyCycle('schedule');
+  }
+});
+
+// Every stop in here used to be a silent return, which made a cycle that did
+// nothing indistinguishable from one that never ran. Each outcome is now
+// recorded so the popup can say exactly where it stopped.
+async function recordCycle(status, detail) {
+  await chrome.storage.local.set({
+    lastCycle: { at: new Date().toISOString(), status, detail: detail || '' },
+  });
+  console.log('[JF] cycle:', status, detail || '');
+}
+
+async function runAutoApplyCycle(trigger) {
+  {
+    if (!(await isAuthenticated())) {
+      await recordCycle('not signed in', 'sign in from the extension popup');
+      return;
+    }
 
     const { config } = await chrome.storage.local.get('config');
-    if (!config?.autoApply) return;
+    if (!config?.autoApply) {
+      await recordCycle('auto-apply is off', 'turn on Auto-Apply Mode');
+      return;
+    }
 
     // Nothing to do if today's budget is already spent: don't even open a tab.
     const spare = await budgetAllows(1);
     if (!spare.ok) {
-      console.log('[JF] cycle skipped:', spare.reason);
+      await recordCycle('budget stopped it', spare.reason);
       return;
     }
 
@@ -348,10 +370,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // no lane to score against: let the API judge each job against all four.
     await handleAutoApplyCycle(tab.id, useLanes ? lane : null);
 
+    await recordCycle('ran (' + trigger + ')', 'searched ' + search);
+
     // Close the search tab after scanning
     try { await chrome.tabs.remove(tab.id); } catch {}
   }
-});
+}
 
 // Full auto-apply cycle: scan page, match jobs, apply to recommended ones
 async function handleAutoApplyCycle(tabId, lane) {
@@ -366,18 +390,27 @@ async function handleAutoApplyCycle(tabId, lane) {
       await sleep(2000);
       try {
         scrapeResult = await chrome.tabs.sendMessage(tabId, { action: 'scrapeAndReport' });
-      } catch { return; }
+      } catch {
+        await recordCycle('could not read the page', 'the search page did not respond');
+        return;
+      }
     }
 
     const allJobs = scrapeResult?.jobs || [];
-    if (allJobs.length === 0) return;
+    if (allJobs.length === 0) {
+      await recordCycle('no jobs on the page', 'the search returned nothing');
+      return;
+    }
 
     // Only look at posts we have not already scored in an earlier cycle, and
     // only while they are still fresh enough to be worth a point.
     const maxAge = config?.maxJobAgeHours ?? DEFAULT_CONFIG.maxJobAgeHours;
     const unseen = await filterUnseen(allJobs);
     const jobs = filterFresh(unseen, maxAge);
-    if (jobs.length === 0) return;
+    if (jobs.length === 0) {
+      await recordCycle('nothing new', `${allJobs.length} on the page, all already seen or older than ${maxAge}h`);
+      return;
+    }
 
     // Step 2: Match jobs
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
@@ -386,11 +419,18 @@ async function handleAutoApplyCycle(tabId, lane) {
       body: JSON.stringify({ jobs, lane, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
     });
 
-    if (!matchRes.ok) return;
+    if (!matchRes.ok) {
+      await recordCycle('scoring failed', `the app returned ${matchRes.status}`);
+      return;
+    }
     const matchData = await matchRes.json();
 
     const recommended = (matchData.matches || []).filter(m => m.should_apply);
-    if (recommended.length === 0) return;
+    if (recommended.length === 0) {
+      const best = Math.max(0, ...(matchData.matches || []).map(m => m.score || 0));
+      await recordCycle('nothing cleared the bar', `${jobs.length} new, best score ${best}`);
+      return;
+    }
 
     await updateStats({ scanned: jobs.length, matched: matchData.matches?.length || 0 });
 
@@ -419,7 +459,10 @@ async function handleAutoApplyCycle(tabId, lane) {
       toApply.push(job);
     }
 
-    if (toApply.length === 0) return;
+    if (toApply.length === 0) {
+      await recordCycle('already applied', `${recommended.length} matched but all were applied to before`);
+      return;
+    }
 
     // Review mode: never send unattended. Tell the user; clicking the
     // notification prepares the applications for review.
@@ -428,6 +471,7 @@ async function handleAutoApplyCycle(tabId, lane) {
       return;
     }
 
+    await recordCycle('applying', `${toApply.length} job(s), ${plannedAp} point(s)`);
     await applyToJobs(toApply);
   } catch {
     // Silent fail for background cycle
@@ -720,6 +764,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'runCycleNow') {
+    // The alarm's first fire is a full interval away and every extension reload
+    // resets that clock, so waiting is not always an option.
+    runAutoApplyCycle('manual').then(
+      () => chrome.storage.local.get('lastCycle').then((r) => sendResponse(r.lastCycle || null)),
+      (err) => sendResponse({ status: 'error', detail: String(err) })
+    );
+    return true;
+  }
+
   if (message.action === 'getBudget') {
     (async () => {
       const b = await getBudget();
@@ -729,7 +783,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const stored = await chrome.storage.local.get('laneCursor');
       const cursor = stored.laneCursor || 0;
       const nextLane = order[cursor % order.length];
+      const lastCycle = (await chrome.storage.local.get('lastCycle')).lastCycle || null;
       sendResponse({
+        lastCycle,
         applied: b.applied,
         apSpent: b.apSpent,
         apBalance: b.apBalance,

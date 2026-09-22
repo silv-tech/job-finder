@@ -222,6 +222,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         set('today-mode', reviewing
           ? 'Review mode: matches are prepared and you get a notification. Nothing sends on its own.'
           : 'Auto-send is ON. Applications go out without review.');
+
+        // Say where the last cycle stopped. "Never run" and "ran but found
+        // nothing" used to look identical from out here.
+        const c = b.lastCycle;
+        if (!c) {
+          set('today-last-cycle', 'Last cycle: never run yet.');
+        } else {
+          const t = new Date(c.at);
+          const hhmm = isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          set('today-last-cycle', `Last cycle: ${hhmm} - ${c.status}${c.detail ? ' (' + c.detail + ')' : ''}`);
+        }
       });
     }
     paintToday();
@@ -267,6 +278,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('scan-interval-visible').addEventListener('change', () => saveSettings());
     document.getElementById('max-applies').addEventListener('change', () => saveSettings());
     document.getElementById('min-score').addEventListener('change', () => saveSettings());
+    // Waiting for the alarm is not always possible: its first fire is a full
+    // interval away and every extension reload resets that clock.
+    document.getElementById('run-now-btn').addEventListener('click', () => {
+      const btn = document.getElementById('run-now-btn');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      chrome.runtime.sendMessage({ action: 'runCycleNow' }, (res) => {
+        btn.disabled = false;
+        btn.textContent = 'Run a cycle now';
+        if (res && res.status) {
+          const el = document.getElementById('today-last-cycle');
+          if (el) el.textContent = `Last cycle: just now - ${res.status}${res.detail ? ' (' + res.detail + ')' : ''}`;
+        }
+        paintToday();
+      });
+    });
+
     document.getElementById('daily-ap').addEventListener('change', () => saveSettings());
     document.getElementById('max-per-day').addEventListener('change', () => saveSettings());
     document.getElementById('max-job-age').addEventListener('change', () => saveSettings());
