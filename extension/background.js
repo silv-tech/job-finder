@@ -3,7 +3,18 @@
 const DEFAULT_CONFIG = {
   apiUrl: 'https://jobs.dlvasolutions.com',
   autoApply: false,
-  scanInterval: 5,
+  scanInterval: 10,
+  // The four kinds of job worth applying to, searched one per cycle.
+  lanes: ['developer', 'management', 'exec_assistant', 'general_va'],
+  // A job post is a drop: the value is in being early. Anything older than this
+  // has already been buried by other applicants, so don't spend a point on it.
+  maxJobAgeHours: 24,
+  // Apply Points refill at 10 a day and the balance caps at 60, so spending is
+  // the real limit. Defaults keep us inside one day's income.
+  dailyApBudget: 10,
+  maxAppliesPerDay: 15,
+  apReserve: 0,
+  minApplyScore: 60,
   profile: {
     name: '',
     email: '',
@@ -15,6 +26,131 @@ const DEFAULT_CONFIG = {
     bio: '',
   },
 };
+
+// What to type into the onlinejobs.ph search box for each lane. Scoring lives
+// server-side in src/lib/lanes.ts; this is only the search text.
+const LANE_SEARCHES = {
+  developer: ['web developer', 'full stack developer', 'javascript developer', 'ai automation developer'],
+  management: ['operations manager', 'team manager', 'project manager'],
+  exec_assistant: ['executive assistant', 'chief of staff', 'right hand assistant'],
+  general_va: ['virtual assistant', 'data entry', 'admin assistant'],
+};
+
+// --- Apply Points budget ----------------------------------------------------
+// Everything the auto-apply cycle does answers to this. onlinejobs.ph runs on
+// Philippine time, so the daily counters roll over when the site's day does.
+
+function phtDayKey(when) {
+  const t = (when || new Date()).getTime() + 8 * 3600 * 1000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+async function getBudget() {
+  const stored = (await chrome.storage.local.get('budget')).budget;
+  const today = phtDayKey();
+  if (!stored || stored.day !== today) {
+    // Carry the last observed balance across the day boundary; it is refreshed
+    // for real the next time an apply page tells us the true number.
+    const fresh = { day: today, applied: 0, apSpent: 0, apBalance: stored ? stored.apBalance : null };
+    await chrome.storage.local.set({ budget: fresh });
+    return fresh;
+  }
+  return stored;
+}
+
+// The apply page shows the real balance. That reading beats any estimate.
+async function recordApBalance(balance) {
+  if (typeof balance !== 'number' || !isFinite(balance) || balance < 0) return;
+  const b = await getBudget();
+  b.apBalance = balance;
+  await chrome.storage.local.set({ budget: b });
+}
+
+// Can we afford to send one more application worth `ap` points right now?
+async function budgetAllows(ap) {
+  const { config } = await chrome.storage.local.get('config');
+  const maxApplies = config && config.maxAppliesPerDay != null ? config.maxAppliesPerDay : DEFAULT_CONFIG.maxAppliesPerDay;
+  const apBudget = config && config.dailyApBudget != null ? config.dailyApBudget : DEFAULT_CONFIG.dailyApBudget;
+  const reserve = config && config.apReserve != null ? config.apReserve : DEFAULT_CONFIG.apReserve;
+  const b = await getBudget();
+
+  if (b.applied >= maxApplies) return { ok: false, reason: 'daily application cap reached (' + b.applied + '/' + maxApplies + ')' };
+  if (b.apSpent + ap > apBudget) return { ok: false, reason: 'daily Apply Point budget spent (' + b.apSpent + '/' + apBudget + ')' };
+  if (b.apBalance != null && b.apBalance - ap < reserve) return { ok: false, reason: 'Apply Point balance too low (' + b.apBalance + ' left)' };
+  return { ok: true };
+}
+
+async function recordSpend(ap) {
+  const b = await getBudget();
+  b.applied += 1;
+  b.apSpent += ap;
+  if (b.apBalance != null) b.apBalance = Math.max(0, b.apBalance - ap);
+  await chrome.storage.local.set({ budget: b });
+}
+
+// One lane per cycle. The first lane is checked every other cycle because it is
+// the one he most wants and posts there go stale fastest; a flat rotation would
+// only reach it once every four cycles.
+function laneOrder(lanes) {
+  if (lanes.length <= 1) return lanes.slice();
+  const primary = lanes[0];
+  const rest = lanes.slice(1);
+  const order = [];
+  for (const other of rest) { order.push(primary); order.push(other); }
+  return order; // e.g. dev, mgmt, dev, ea, dev, va
+}
+
+async function nextLaneAndSearch(config) {
+  const lanes = (config && config.lanes && config.lanes.length) ? config.lanes : DEFAULT_CONFIG.lanes;
+  const order = laneOrder(lanes);
+  const stored = await chrome.storage.local.get('laneCursor');
+  const cursor = stored.laneCursor || 0;
+  const lane = order[cursor % order.length];
+  const searches = LANE_SEARCHES[lane] || [lane];
+  // Vary the search text each time this lane comes round, so one phrasing does
+  // not hide posts the others would surface.
+  const round = Math.floor(cursor / order.length);
+  const search = searches[round % searches.length];
+  await chrome.storage.local.set({ laneCursor: (cursor + 1) % (order.length * searches.length * 4) });
+  return { lane, search };
+}
+
+// How old a post is, in hours, from the card's timestamp. Philippine time, as
+// the site publishes it. null when the post carries no usable timestamp.
+function jobAgeHours(posted_at) {
+  if (!posted_at) return null;
+  const m = String(posted_at).match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  const [, y, mo, d, hh, mm, ss] = m;
+  // Build the instant as PHT (UTC+8) regardless of the machine's own timezone.
+  const postedUtcMs = Date.UTC(+y, +mo - 1, +d, +(hh || 0), +(mm || 0), +(ss || 0)) - 8 * 3600 * 1000;
+  const age = (Date.now() - postedUtcMs) / 3600000;
+  return isFinite(age) ? age : null;
+}
+
+// Drop the stale ones. A post with no timestamp is kept: better to score it
+// than to silently discard a job that might be minutes old.
+function filterFresh(jobs, maxAgeHours) {
+  if (!maxAgeHours) return jobs;
+  return jobs.filter((j) => {
+    const age = jobAgeHours(j.posted_at);
+    return age === null || age <= maxAgeHours;
+  });
+}
+
+// Jobs already scored in an earlier cycle. Anything not in here is new, which
+// is a more reliable "is this a fresh post" test than the card's date, which
+// has no time of day on it.
+async function filterUnseen(jobs) {
+  const stored = await chrome.storage.local.get('seenUrls');
+  const seen = new Set(stored.seenUrls || []);
+  const fresh = jobs.filter((j) => j.apply_url && !seen.has(j.apply_url));
+  for (const j of jobs) if (j.apply_url) seen.add(j.apply_url);
+  // Keep the list from growing without bound.
+  const trimmed = [...seen].slice(-4000);
+  await chrome.storage.local.set({ seenUrls: trimmed });
+  return fresh;
+}
 
 // Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
 function tokenSecondsLeft(token) {
@@ -169,17 +305,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) return;
-    if (!config?.autoApplyKeywords) return; // Need keywords to search
 
-    // Open a fresh search in a hidden tab with newest results
-    const keywords = encodeURIComponent(config.autoApplyKeywords);
+    // Nothing to do if today's budget is already spent: don't even open a tab.
+    const spare = await budgetAllows(1);
+    if (!spare.ok) {
+      console.log('[JF] cycle skipped:', spare.reason);
+      return;
+    }
+
+    // One lane per cycle, rotating, so all four get covered.
+    const { lane, search } = await nextLaneAndSearch(config);
+    // The lane's own search wins. A hand-set keyword is a legacy override and
+    // only applies when lane rotation is switched off, otherwise every cycle
+    // would search the same thing and the other three lanes would never run.
+    const useLanes = !config.lanes || config.lanes.length > 0;
+    const keywords = encodeURIComponent(useLanes ? search : (config.autoApplyKeywords || search));
     const searchUrl = `https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=${keywords}&gig=on&partTime=on&fullTime=on&isFromJobsearchForm=1`;
     const tab = await chrome.tabs.create({ url: searchUrl, active: false });
 
     await waitForTabLoad(tab.id);
     await sleep(3000); // Let JS render
 
-    await handleAutoApplyCycle(tab.id);
+    await handleAutoApplyCycle(tab.id, lane);
 
     // Close the search tab after scanning
     try { await chrome.tabs.remove(tab.id); } catch {}
@@ -187,7 +334,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 // Full auto-apply cycle: scan page, match jobs, apply to recommended ones
-async function handleAutoApplyCycle(tabId) {
+async function handleAutoApplyCycle(tabId, lane) {
   try {
     const { config } = await chrome.storage.local.get('config');
 
@@ -202,14 +349,21 @@ async function handleAutoApplyCycle(tabId) {
       } catch { return; }
     }
 
-    const jobs = scrapeResult?.jobs || [];
+    const allJobs = scrapeResult?.jobs || [];
+    if (allJobs.length === 0) return;
+
+    // Only look at posts we have not already scored in an earlier cycle, and
+    // only while they are still fresh enough to be worth a point.
+    const maxAge = config?.maxJobAgeHours ?? DEFAULT_CONFIG.maxJobAgeHours;
+    const unseen = await filterUnseen(allJobs);
+    const jobs = filterFresh(unseen, maxAge);
     if (jobs.length === 0) return;
 
     // Step 2: Match jobs
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     const matchRes = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      body: JSON.stringify({ jobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
+      body: JSON.stringify({ jobs, lane, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
     });
 
     if (!matchRes.ok) return;
@@ -223,11 +377,27 @@ async function handleAutoApplyCycle(tabId) {
     // Step 3: Check for already-applied jobs
     const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
     const appliedSet = new Set(appliedUrls);
-    const maxApplies = config?.maxAppliesPerCycle || 5;
-    const minScore = config?.minApplyScore || 55;
-    const toApply = recommended
+    const perCycle = config?.maxAppliesPerCycle || 5;
+    const minScore = config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore;
+
+    // Best match first, then take only what today's points actually cover.
+    const candidates = recommended
       .filter(j => !appliedSet.has(j.apply_url) && (j.score || 0) >= minScore)
-      .slice(0, maxApplies);
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    const toApply = [];
+    let plannedAp = 0;
+    for (const job of candidates) {
+      if (toApply.length >= perCycle) break;
+      const ap = job.apply_points || 1;
+      const allowed = await budgetAllows(plannedAp + ap);
+      if (!allowed.ok) {
+        console.log('[JF] stopping this cycle:', allowed.reason);
+        break;
+      }
+      plannedAp += ap;
+      toApply.push(job);
+    }
 
     if (toApply.length === 0) return;
 
@@ -467,6 +637,10 @@ async function applyToJobs(jobs) {
           });
         } else if (fillResult?.success) {
           appliedCount++;
+          // Points are spent the moment it sends, so the ledger moves here.
+          await recordSpend(job.apply_points || 1);
+          // The apply page knows the true balance; trust it over our running total.
+          if (fillResult.ap_balance != null) await recordApBalance(fillResult.ap_balance);
           await handleSaveJob(job);
           await logApplication(job);
         } else {
@@ -487,10 +661,12 @@ async function applyToJobs(jobs) {
   }
 
   if (appliedCount > 0) {
+    const b = await getBudget();
+    const left = b.apBalance != null ? `, ${b.apBalance} Apply Points left` : '';
     chrome.notifications.create({
       type: 'basic',
       title: 'Auto-Apply Complete',
-      message: `Applied to ${appliedCount} job${appliedCount > 1 ? 's' : ''} automatically`,
+      message: `Applied to ${appliedCount} job${appliedCount > 1 ? 's' : ''} (${b.applied} today, ${b.apSpent} points spent${left})`,
       iconUrl: 'icons/icon128.png',
     });
   }
@@ -629,7 +805,7 @@ async function handleMatchJobs(jobs) {
   try {
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore || 55 }),
+      body: JSON.stringify({ jobs, profile: config?.profile || DEFAULT_CONFIG.profile, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
     });
 
     if (res.status === 401) {
@@ -837,7 +1013,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
-      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore || 55 }),
+      body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
     });
 
     if (!res.ok) {

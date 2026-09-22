@@ -165,6 +165,25 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // review popup.
   let fillStarted = false;
 
+  // The apply page states the remaining Apply Points. Reading the real number
+  // beats any running total we keep, so the budget is anchored to the truth.
+  function readApBalance() {
+    const text = document.body.textContent || '';
+    const patterns = [
+      /you have\s+(\d+)\s+apply\s+points?/i,
+      /(\d+)\s+apply\s+points?\s+(?:left|remaining|available)/i,
+      /apply\s+points?\s*(?:left|remaining|available)?\s*[:\-]?\s*(\d+)/i,
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (Number.isFinite(n) && n >= 0 && n <= 200) return n;
+      }
+    }
+    return null;
+  }
+
   async function handleFillApplyForm(job, onStage) {
     fillStarted = true;
     const stage = (text) => { try { if (onStage) onStage(text); } catch (e) { /* caller went away */ } };
@@ -218,12 +237,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
     stage('Filling in your answers...');
     const filled = fillFormFields(formFields, application);
 
-    // Fill Apply Points with 2
+    // Spend the points the match scored: a stronger fit stands out more. The
+    // number is decided server-side (src/lib/lanes.ts apForScore).
+    const apToSpend = Math.max(1, Math.min(10, parseInt(job.apply_points, 10) || 2));
     const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
     if (pointsInput) {
-      setInputValue(pointsInput, '2');
+      setInputValue(pointsInput, String(apToSpend));
       filled.push('apply_points');
     }
+    const apBalance = readApBalance();
 
     // Find the Send Email button
     let sendBtn = null;
@@ -242,7 +264,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
       showReviewPanel({ job, formFields, application, sendBtn });
 
       // Filled, but the user still has to review and click Send
-      return { success: true, pending_review: true, filled: filled.length };
+      return { success: true, pending_review: true, filled: filled.length, ap_balance: apBalance, ap_spent: apToSpend };
     } else {
       // Auto-send without review
       if (!sendBtn) {
@@ -267,7 +289,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
       `);
     }
 
-    return { success: true, sent: true, filled: filled.length };
+    return { success: true, sent: true, filled: filled.length, ap_balance: apBalance, ap_spent: apToSpend };
   }
 
   // Review popup: shows the detected role focus (switchable), the subject and
@@ -537,15 +559,18 @@ console.log('[JF] Content script loaded on:', window.location.href);
         description = cardText.replace(title, '').replace(/\s+/g, ' ').trim().slice(0, 3000);
       }
 
-      // Posted date
+      // Posted date. data-temp carries the full timestamp ("2026-09-22
+      // 11:29:08"), so keep the time: being first to a fresh post is the whole
+      // game, and a date alone cannot tell a 10-minute-old job from a 20-hour
+      // one. Times are Philippine time, same as the site.
       let posted_at = '';
       const dateEl = card.querySelector('[data-temp]');
       if (dateEl) {
-        posted_at = dateEl.getAttribute('data-temp')?.split(' ')[0] || '';
+        posted_at = dateEl.getAttribute('data-temp')?.trim() || '';
       }
       if (!posted_at) {
-        const dateMatch = (card.textContent || '').match(/\d{4}-\d{2}-\d{2}/);
-        if (dateMatch) posted_at = dateMatch[0];
+        const stampMatch = (card.textContent || '').match(/\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?/);
+        if (stampMatch) posted_at = stampMatch[0];
       }
 
       // Company — text before the bullet/dot before "Posted on"
