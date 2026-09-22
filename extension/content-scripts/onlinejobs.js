@@ -138,9 +138,11 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
     fillFormFields(formFields, application);
 
-    // Fill apply points
-    const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
-    if (pointsInput) setInputValue(pointsInput, '2');
+    // Fill apply points with the tier the match earned, not a fixed 2.
+    const apToSpend = pointsToSpend(job);
+    const pointsInput = findPointsInput();
+    if (pointsInput) setInputValue(pointsInput, String(apToSpend));
+    const apBalance = readApBalance();
 
     await sleep(500);
 
@@ -155,7 +157,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
     if (sendBtn) {
       sendBtn.click();
-      return { success: true };
+      // Report what was spent and the balance the page showed, so the
+      // background ledger tracks the real number rather than an estimate.
+      return { success: true, sent: true, ap_balance: apBalance, ap_spent: apToSpend };
     }
     return { success: false, error: 'Send button not found' };
   }
@@ -164,6 +168,20 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // Detected" prompt (which appears ~1.5s+ after load) never replaces the
   // review popup.
   let fillStarted = false;
+
+  // Verified on the real /apply page: the field is
+  // <input type="text" name="points" placeholder="ex. 3">, NOT a number input,
+  // so match on name first and keep the old selectors as fallbacks.
+  function findPointsInput() {
+    return document.querySelector('input[name="points"]')
+      || document.querySelector('input[type="number"], input[placeholder*="ex."]');
+  }
+
+  // How many points this application should spend. Decided server-side by the
+  // match score (src/lib/lanes.ts apForScore); 2 only if nothing was supplied.
+  function pointsToSpend(job) {
+    return Math.max(1, Math.min(10, parseInt(job && job.apply_points, 10) || 2));
+  }
 
   // The apply page states the remaining Apply Points. Reading the real number
   // beats any running total we keep, so the budget is anchored to the truth.
@@ -239,8 +257,8 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
     // Spend the points the match scored: a stronger fit stands out more. The
     // number is decided server-side (src/lib/lanes.ts apForScore).
-    const apToSpend = Math.max(1, Math.min(10, parseInt(job.apply_points, 10) || 2));
-    const pointsInput = document.querySelector('input[type="number"], input[placeholder*="ex."]');
+    const apToSpend = pointsToSpend(job);
+    const pointsInput = findPointsInput();
     if (pointsInput) {
       setInputValue(pointsInput, String(apToSpend));
       filled.push('apply_points');
