@@ -132,6 +132,25 @@ ${lacks.length ? `- NOT in their background: ${lacks.join(', ')}. Do NOT say or 
 
 // --- Prompt -----------------------------------------------------------------
 
+// The one other skill area worth a passing mention for each kind of job, so the
+// employer sees the applicant can do more than this one role.
+const GLIMPSE_OF: Record<RoleKey, RoleKey> = {
+  management: 'automation',
+  automation: 'management',
+  general_va: 'automation',
+  admin: 'automation',
+};
+
+function glimpseBlock(role: RoleKey, highlights?: RoleHighlights | null): string {
+  const other = GLIMPSE_OF[role];
+  const facts = highlights?.[other]?.trim().split('\n').slice(0, 3).join('\n');
+  if (!facts) return '';
+  return `
+A GLIMPSE OF ONE OTHER SKILL: after the main proof, add ONE short sentence (or half a sentence) that hints the applicant can also do ${ROLE_LABELS[other].toLowerCase()} work, using one real fact from below. Just enough for the reader to think "oh, they can do that too": no details, no tool lists, no numbers unless it's a single short one, never the opening, and never more space than the main focus gets. Tie it to this job if it fits naturally (e.g. that it helps them run things smoother). Skip it only if the post asks for a very short reply.
+${facts}
+`;
+}
+
 function buildPrompt(job: WriterJob, p: WriterProfile, opts: WriteOptions): string {
   const skills = (p.skills || []).join(', ');
 
@@ -164,7 +183,7 @@ ${ROLE_PLAYBOOKS[role]}
 ${proof ? `
 THE APPLICANT'S STRONGEST PROOF FOR ${ROLE_LABELS[role].toUpperCase()} ROLES (real facts from their resume and portfolio; pick the 1 to 3 that best match THIS post and lead with them, don't list them all):
 ${proof}
-` : ''}`
+` : ''}${glimpseBlock(role, p.role_highlights)}`
     : `=== WHAT THIS JOB IS ===
 Work out what this employer values most from the post, and lead with the applicant's experience that matches it best.`;
 
