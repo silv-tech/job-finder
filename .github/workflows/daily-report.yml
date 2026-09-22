@@ -1,0 +1,20 @@
+# End-of-day report: what was applied to, where, and what was sent.
+# CRON_SECRET must match the Railway variable of the same name.
+name: Daily application report
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # 09:00 UTC = 5:00 PM PHT
+  workflow_dispatch: {}
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the report endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body -sS --max-time 280 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://job-finder-production-7aab.up.railway.app/api/cron/daily-report

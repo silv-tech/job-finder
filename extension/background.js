@@ -12,7 +12,7 @@ const DEFAULT_CONFIG = {
   // Apply Points refill at 10 a day and the balance caps at 60, so spending is
   // the real limit. Defaults keep us inside one day's income.
   dailyApBudget: 10,
-  maxAppliesPerDay: 15,
+  maxAppliesPerDay: 10,
   apReserve: 0,
   minApplyScore: 60,
   profile: {
@@ -644,7 +644,7 @@ async function applyToJobs(jobs) {
           // The apply page knows the true balance; trust it over our running total.
           if (fillResult.ap_balance != null) await recordApBalance(fillResult.ap_balance);
           await handleSaveJob(job);
-          await logApplication(job);
+          await logApplication(job, fillResult.application);
         } else {
           // Content script reported a clean failure: allow a retry next time
           await unmarkApplied(job.apply_url);
@@ -1126,8 +1126,33 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function logApplication(job) {
+async function logApplication(job, application) {
   await updateStats({ applied: 1 });
+
+  // Record what actually went out. Without this the message is lost the moment
+  // it sends and the end-of-day report has nothing to show.
+  try {
+    const { config } = await chrome.storage.local.get('config');
+    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    await apiFetch(`${apiUrl}/api/extension/log-application`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: job.title,
+        company: job.company,
+        apply_url: job.apply_url,
+        lane: job.lane,
+        role: job.role,
+        score: job.score,
+        apply_points: job.apply_points,
+        posted_at: job.posted_at,
+        subject: application?.subject || '',
+        message: application?.cover_letter || application?.message || '',
+      }),
+    });
+  } catch (err) {
+    // A failed log must never stop the run or look like a failed application.
+    console.error('[JF] could not record application:', err);
+  }
 
   chrome.notifications.create({
     type: 'basic',

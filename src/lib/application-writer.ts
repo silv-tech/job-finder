@@ -319,10 +319,28 @@ export function findAiTells(text: string, subject = ''): string[] {
 // Page inputs that aren't part of the application (the site's search bar,
 // filters, newsletter sign-ups). The extension collects every input on the
 // page, so drop these before the AI sees them and never fill them.
-const NON_APPLICATION_FIELD = /\b(search|query|keywords?|filter|sort|newsletter|subscribe|coupon|promo)\b|^q$/i;
+const NON_APPLICATION_FIELD =
+  // Site furniture: search bars, filters, newsletter sign-ups. "jobkeyword"
+  // has no word boundary before "keyword", so match it without one.
+  /(search|query|keywords?|filter|sort|newsletter|subscribe|coupon|promo)|^q$/i;
+
+// Inputs that sit on onlinejobs.ph's own /apply page but are NOT the
+// application: the employer sign-up widget rendered further down, the
+// applicant's own prefilled contact block, the Apply Points box (we set that
+// ourselves from the match score), and Mailchimp's honeypot, which is a bot
+// trap that flags the account if anything writes to it. Verified against the
+// live page on 2026-09-22.
+const NEVER_FILL_FIELD =
+  /^employer\[|^contact[-_]info|^points$|^csrf|^b_[0-9a-f]{8,}|^info\[(name|email)\]$|^(back_id|job_id|sent_to_e_id|email_sent_count_today|terms|op|filter_field|regproduct)$/i;
 
 function applicationFields(fields: FormField[] = []): FormField[] {
-  return fields.filter((f) => ![f.name, f.id, f.label].some((v) => v && NON_APPLICATION_FIELD.test(v.trim())));
+  return fields.filter((f) => {
+    const parts = [f.name, f.id, f.label];
+    if (parts.some((v) => v && NON_APPLICATION_FIELD.test(v.trim()))) return false;
+    // Name and id only: a label must never make a real field look unfillable.
+    if ([f.name, f.id].some((v) => v && NEVER_FILL_FIELD.test(v.trim()))) return false;
+    return true;
+  });
 }
 
 // A spaced hyphen used as a dash reads like AI; keep number and day/month ranges.

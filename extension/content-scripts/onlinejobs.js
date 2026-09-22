@@ -159,7 +159,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
       sendBtn.click();
       // Report what was spent and the balance the page showed, so the
       // background ledger tracks the real number rather than an estimate.
-      return { success: true, sent: true, ap_balance: apBalance, ap_spent: apToSpend };
+      // Hand back what was actually sent so it can be recorded for the
+      // end-of-day report; the message is otherwise lost at this point.
+      return {
+        success: true,
+        sent: true,
+        ap_balance: apBalance,
+        ap_spent: apToSpend,
+        application: { subject: application.subject, cover_letter: application.cover_letter },
+      };
     }
     return { success: false, error: 'Send button not found' };
   }

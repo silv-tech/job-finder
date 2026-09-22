@@ -104,3 +104,22 @@ export async function sendAlertEmail(
     `,
   });
 }
+
+// Send HTML exactly as given. sendOutreachEmail turns newlines into <br>, which
+// is right for a plain-text message but would inject breaks into every line of
+// a real HTML document, so the daily report uses this instead.
+export async function sendHtmlEmail(
+  to: string,
+  subject: string,
+  html: string
+): Promise<SendResult> {
+  const client = getResend();
+  if (!client) return { success: false, error: 'Resend API key not configured', code: 'CONFIG_ERROR' };
+
+  return deliver(client, {
+    from: `${process.env.SENDER_NAME} <${process.env.SENDER_EMAIL}>`,
+    to,
+    subject,
+    html,
+  });
+}

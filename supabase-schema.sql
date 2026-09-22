@@ -103,3 +103,27 @@ CREATE POLICY profiles_owner    ON profiles    FOR ALL USING (auth.uid() = user_
 --   ALTER TABLE profiles    ADD COLUMN IF NOT EXISTS writing_samples TEXT DEFAULT '';
 --   ALTER TABLE profiles    ADD COLUMN IF NOT EXISTS role_highlights JSONB DEFAULT '{}'::jsonb;
 --   -- then enable RLS + policies exactly as above.
+
+-- Applications actually sent by the extension. logApplication used to only
+-- bump a counter, so the message that went out was lost the moment it sent.
+-- The end-of-day report reads from here.
+CREATE TABLE applications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL,
+  title TEXT NOT NULL,
+  company TEXT DEFAULT '',
+  apply_url TEXT DEFAULT '',
+  lane TEXT DEFAULT '',
+  role TEXT DEFAULT '',
+  score INT,
+  apply_points INT,
+  subject TEXT DEFAULT '',
+  message TEXT DEFAULT '',
+  posted_at TEXT DEFAULT '',
+  sent_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX applications_user_sent_idx ON applications (user_id, sent_at DESC);
+
+-- Existing installs:
+--   (run the CREATE TABLE and CREATE INDEX above once)
