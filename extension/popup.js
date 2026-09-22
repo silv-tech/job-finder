@@ -248,7 +248,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const card = document.getElementById('manual-card');
         const list = document.getElementById('manual-list');
         if (!card || !list) return;
-        if (!queue || queue.length === 0) {
+        // Must be an array. A non-array reply (a worker that answered oddly, or
+        // an error object) used to reach queue.map() and throw, which killed
+        // every listener registered after this point in setup.
+        if (!Array.isArray(queue) || queue.length === 0) {
           card.classList.add('hidden');
           return;
         }
@@ -390,13 +393,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('run-now-btn').addEventListener('click', () => {
       const btn = document.getElementById('run-now-btn');
       btn.disabled = true;
-      btn.textContent = 'Running...';
+      btn.textContent = 'Running... (a notification will report the result)';
       chrome.runtime.sendMessage({ action: 'runCycleNow' }, (res) => {
         btn.disabled = false;
-        btn.textContent = 'Run a cycle now';
         if (res && res.status) {
+          // Put the outcome on the button itself: the small line below is easy
+          // to miss, and this is the thing that was just clicked.
+          btn.textContent = res.status;
+          btn.style.color = /stopped|error|failed/i.test(res.status) ? '#b45309' : '#047857';
           const el = document.getElementById('today-last-cycle');
           if (el) el.textContent = `Last cycle: just now - ${res.status}${res.detail ? ' (' + res.detail + ')' : ''}`;
+          setTimeout(() => {
+            btn.textContent = 'Run a cycle now';
+            btn.style.color = '';
+          }, 10000);
+        } else {
+          btn.textContent = 'Run a cycle now';
         }
         paintToday();
       });

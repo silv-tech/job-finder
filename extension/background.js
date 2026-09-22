@@ -822,9 +822,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'runCycleNow') {
     // The alarm's first fire is a full interval away and every extension reload
     // resets that clock, so waiting is not always an option.
+    //
+    // The outcome also goes out as a notification. Opening the search tab can
+    // close the popup, and once that happens its script is gone and the reply
+    // below reaches nobody: the run looks like it did nothing at all.
     runAutoApplyCycle('manual').then(
-      () => chrome.storage.local.get('lastCycle').then((r) => sendResponse(r.lastCycle || null)),
-      (err) => sendResponse({ status: 'error', detail: String(err) })
+      async () => {
+        const { lastCycle } = await chrome.storage.local.get('lastCycle');
+        if (lastCycle) {
+          chrome.notifications.create({
+            type: 'basic',
+            title: 'Cycle finished: ' + lastCycle.status,
+            message: lastCycle.detail || 'No further detail.',
+            iconUrl: 'icons/icon128.png',
+          });
+        }
+        try { sendResponse(lastCycle || null); } catch { /* popup already closed */ }
+      },
+      (err) => {
+        chrome.notifications.create({
+          type: 'basic',
+          title: 'Cycle failed',
+          message: String(err).slice(0, 180),
+          iconUrl: 'icons/icon128.png',
+        });
+        try { sendResponse({ status: 'error', detail: String(err) }); } catch {}
+      }
     );
     return true;
   }
