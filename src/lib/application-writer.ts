@@ -3,6 +3,7 @@ import { WRITING_MODEL, FACT_CHECK_MODEL, extractText, parseJsonResponse, stripA
 import { wrapJobPost, JOB_POST_SAFETY_RULES, hasVerbatimCopy } from '@/lib/prompt-safety';
 import { ROLE_LABELS, ROLE_PLAYBOOKS, resumeUrlFor, type RoleHighlights, type RoleKey } from '@/lib/roles';
 import { asksBlock, extractAsks, unansweredAsks } from '@/lib/post-asks';
+import { answersSchedule, detectRequiredSchedule, scheduleBlock } from '@/lib/schedule';
 
 // One writer for both the extension's auto-fill and the web app's message box,
 // so every application gets the same role focus and human-voice checks.
@@ -312,6 +313,9 @@ Work out what this employer values most from the post, and lead with the applica
   // Everything the post asks applicants to send, by name.
   const asks = asksBlock(extractAsks(job.description || ''));
 
+  // A schedule the post states as a hard requirement, in his local hours.
+  const schedule = scheduleBlock(detectRequiredSchedule(job.description || ''));
+
   const fieldsBlock = opts.formFields?.length
     ? `FORM FIELDS ON THE APPLICATION PAGE (fill each one appropriately):
 ${JSON.stringify(opts.formFields, null, 2)}`
@@ -366,6 +370,8 @@ ${toolFacts(job, p)}
 
 ${asks}
 
+${schedule}
+
 ${fieldsBlock}
 
 === HOW TO WRITE THIS ===
@@ -386,7 +392,7 @@ ${fieldsBlock}
    - Only claim tools, skills and experience that appear in the profile, resume or proof points. If the post names a tool the applicant hasn't used, don't say they have; mention the closest real experience instead.
    - NEVER name a past employer or client. Say "in a previous role", "at an agency I worked with", "for a client", "a team I ran" instead. "In a previous role I ran a team of 30+ and grew monthly net sales from $40,000 to $200,000" carries exactly the same weight as naming the company, and the name is not the employer's business. The ONE exception is the applicant's own products and projects, the ones on their portfolio: name those freely, they are the proof.
    - NEVER describe the applicant's background by what it is NOT. No "my background is in X rather than Y", no "I don't have direct experience in", no "while I haven't worked as a...", no "I'm not a X, but". The employer can see what the résumé says; spelling out the gap only argues him out of the job. State the closest real experience as a positive fact and let it stand on its own. The one exception is a direct question from the post, covered under EMBEDDED QUESTIONS: answer that honestly, but answer it forward ("here's the nearest thing I've done, and here's how I'd handle yours"), never as a bare confession.
-   - Don't invent availability, working hours, rates or start dates. If the post asks about hours or time zone, state the applicant's location/time zone from the profile and that they're open to the schedule; don't promise specific hours unless the profile says so.
+   - Don't invent rates or start dates. On hours: if a REQUIRED WORKING SCHEDULE block appears above, follow it exactly, and use the converted local hours it gives you verbatim. If there is no such block and the post says nothing about hours, don't raise the subject at all. Never write that the applicant is "based in the Philippines" or "in Philippine time" as a standalone fact: every applicant on this board is, so it reads as filler, and it answers a question nobody asked. Location is worth a mention only when it is attached to the hours the applicant will actually be working.
 
 4. SOUND LIKE A HUMAN, NOT AN AI. Avoid every one of these tells:
    - NEVER use the em dash or en dash. Use a comma or period.
@@ -684,8 +690,15 @@ It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those pa
   // post asked for an hourly rate and the reply said "easy to sort out once
   // we're clear on scope", which an employer reads as ignoring instructions.
   const postAsks = extractAsks(job.description || '');
-  if (postAsks.length) {
+  const required = detectRequiredSchedule(job.description || '');
+  if (postAsks.length || required) {
     const missed = unansweredAsks(postAsks, draft.cover_letter || '');
+    // A stated schedule is not an "ask", so extractAsks never sees it, but
+    // missing it loses the job just as fast. "Open to a full-time schedule"
+    // does not count as answering it.
+    if (required && !answersSchedule(draft.cover_letter || '')) {
+      missed.push(`the required working schedule (${required.quoted} = ${required.localStart} to ${required.localEnd} his time), stated in his own local hours and confirmed`);
+    }
     if (missed.length) {
       const fixPrompt = `${buildPrompt(job, profile, opts)}
 
