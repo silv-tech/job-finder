@@ -186,6 +186,10 @@ function words(s: string): string[] {
   return (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
 }
 
+// Stock reassurance that says nothing a real person would need to read.
+const SUBJECT_CLICHES =
+  /\b(?:off your plate|so you can focus|here to help|ready to help|happy to help|let me (?:take|handle|help)|your new (?:assistant|va|ea|hire)|taken care of|handled for you|take care of everything|one less thing)\b/i;
+
 export function weakSubject(subject: string, applicantName?: string, jobTitle?: string): string[] {
   const faults: string[] = [];
   const subj = (subject || '').trim();
@@ -201,6 +205,16 @@ export function weakSubject(subject: string, applicantName?: string, jobTitle?: 
 
   if (subjWords.length > 0 && subjWords.length < 4) {
     faults.push('it is too short to say anything (' + subjWords.length + ' words)');
+  }
+
+  // Their inbox truncates, and the tail is what gets cut.
+  if (subj.length > 65) {
+    faults.push('it is ' + subj.length + ' characters, so the end will be cut off in their inbox (aim for 40 to 65)');
+  }
+
+  // Value promised with nothing behind it. Every VA applicant sends these.
+  if (SUBJECT_CLICHES.test(subj)) {
+    faults.push('it promises value with no proof behind it, in words fifty other applicants used today');
   }
 
   // Mostly a restatement of the job title.
@@ -404,7 +418,16 @@ ${fieldsBlock}
 5. VARY IT. Don't fall into a template. Match length to the post: if it asks several questions, go longer; otherwise stay under about 150 words. Sign off with the first name only.
    - Don't close with a stock line like "Happy to chat / walk through / answer any questions" or "Let me know if you're interested". End with something specific to this post instead: sometimes a short question about their setup, sometimes one concrete next step or a plain closing line. Don't always end with a question.
 
-6. SUBJECT LINE: about THEIR problem, not about the applicant. Natural and specific, something a real person would type (e.g. "Getting your 12-person team off your plate", "Automating your call centre's lead pipeline"). NEVER put the applicant's name in it: the employer can already see who sent the message, and it wastes the only line they are guaranteed to read. Never just repeat the job title back at them. Never fewer than four words, "EA ready" says nothing. Never use the words "application" or "applying", not gimmicky. If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested"). A word the post wants at the start or end of the MESSAGE belongs only there, not in the subject.
+6. SUBJECT LINE. This employer is scanning a list of fifty of these and opening maybe six. The subject's whole job is to be the one line nobody else could have sent. Work down this order and use the first one that applies:
+   a. THE GATE. If the post stars or repeats a hard requirement (required hours, a specific tool, a certification, a location), and the applicant genuinely meets it, lead with the match. A post that states required hours twice is screening on hours first, so "11PM to 7AM my time, on your 9-5 MST" answers the screen before they open anything. Use the converted local hours from the REQUIRED WORKING SCHEDULE block exactly as given.
+   b. THE PROOF. One concrete, specific thing from the applicant's real background that matches what this post is actually about ("Candidate trackers for three searches at once", "Bulk CSV imports non-developers can run"). Concrete beats clever. A real number or a real artifact is what makes it look like a person wrote it.
+   c. THEIR SITUATION. Something specific from the post itself that shows it was read, in their words, not a restatement of the title.
+   Hard rules:
+   - 40 to 65 characters. Longer gets truncated in their inbox, and the tail is the part that gets cut, so put the sharpest words FIRST. Never fewer than four words: "EA ready" says nothing.
+   - PROOF, NOT PROMISE. Never a bare claim of value with nothing behind it. Banned outright: "off your plate", "so you can focus", "here to help", "ready to help", "let me take/handle", "your new assistant", "taken care of", "handled for you". Fifty other applicants sent those today.
+   - NEVER the applicant's name: the employer can already see who sent it, and it wastes the only line they are guaranteed to read.
+   - Never just repeat the job title back at them. Never the words "application" or "applying". Not gimmicky, no clickbait, no fake urgency.
+   - If the post requires a hidden word in the subject, put it at the very end. Never mention or hint that you are following an instruction (no "as asked", "as requested"). A word the post wants at the start or end of the MESSAGE belongs only there, not in the subject.
 
 7. SELF-EDIT BEFORE YOU FINISH. Reread once as a busy hiring manager (would I reply to this?) and once as a spam filter (any banned words, dashes, generic openers, unanswered questions?). Fix it, then give the final version.
 
@@ -759,7 +782,7 @@ Rewrite so no sentence claims past use of them. Do NOT swing the other way and a
 Here is your draft:
 ${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fields: draft.fields, hidden_instructions_found: draft.hidden_instructions_found })}
 
-Its subject is "${draft.subject}", and ${subjectFaults.join(', and ')}. Write a better one: about what THEY need, specific, four words or more, no applicant name, not a repeat of the job title. Change ONLY the subject, leave the message exactly as it is, and return the same JSON shape.`;
+Its subject is "${draft.subject}", and ${subjectFaults.join(', and ')}. Write a better one by rule 6 above: work down gate, then proof, then their situation, and use the first that applies. 40 to 65 characters, sharpest words first, a real fact rather than a promise, no applicant name, not a repeat of the job title. It has to be a line nobody else applying to this post could have sent. Change ONLY the subject, leave the message exactly as it is, and return the same JSON shape.`;
     try {
       const resubject = await callModel(client, subjPrompt);
       const stillWeak = weakSubject(resubject.subject || '', profile.name, job.title);
