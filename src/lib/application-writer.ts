@@ -48,6 +48,10 @@ export interface WriteOptions {
   improve?: Draft;
   // "Regenerate": write a fresh version that doesn't repeat this one.
   avoid?: Draft;
+  // Called as each pass starts, so the extension can say what is happening
+  // instead of showing one frozen label for the whole ~30s. Never throws into
+  // the writer: a reporting failure must not lose an application.
+  onProgress?: (phase: string) => void;
 }
 
 export interface WrittenApplication {
@@ -684,7 +688,14 @@ export async function writeApplication(
   opts: WriteOptions
 ): Promise<WrittenApplication> {
   opts = { ...opts, formFields: applicationFields(opts.formFields) };
-  let draft = await callModel(client, buildPrompt(job, profile, opts));
+  const say = (phase: string) => {
+    try { opts.onProgress?.(phase); } catch { /* reporting must never break the write */ }
+  };
+
+  say('Reading the job post');
+  const basePrompt = buildPrompt(job, profile, opts);
+  say('Writing the first draft');
+  let draft = await callModel(client, basePrompt);
 
   // One targeted rewrite if AI giveaways slipped through (dashes are fixed
   // mechanically below, so they alone don't need a rewrite).
@@ -700,6 +711,7 @@ ${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fie
 
 It still sounds AI-written because it ${tells.join('; ')}. Rewrite ONLY those parts in plain, natural words the applicant would actually use. Keep everything else, keep all facts true, and return the same JSON shape.`;
     try {
+      say('Rewriting so it does not read as AI');
       const revised = await callModel(client, revisePrompt);
       const remaining = findAiTells(revised.cover_letter || '', revised.subject || '');
       const keptFields = Object.keys(draft.fields || {}).every((k) => typeof revised.fields?.[k] === 'string');
@@ -734,6 +746,7 @@ ${missed.map((m) => `- ${m}`).join('\n')}
 
 Answer every one of them plainly, in the applicant's own voice, woven into the message rather than bolted on as a list at the end. Keep everything that already works, keep every fact true, keep the links exactly as they are, and return the same JSON shape. If one genuinely does not apply, give the nearest real answer instead of staying silent, and never phrase it as a shortcoming.`;
       try {
+        say('Answering everything the post asked');
         const fixed = await callModel(client, fixPrompt);
         const stillMissing = unansweredAsks(postAsks, fixed.cover_letter || '');
         const keptFields = Object.keys(draft.fields || {}).every((k) => typeof fixed.fields?.[k] === 'string');
@@ -762,6 +775,7 @@ ${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fie
 It says or implies the applicant has USED these, and they never have: ${claimed.join(', ')}.
 Rewrite so no sentence claims past use of them. Do NOT swing the other way and admit a gap either: no "I haven't used", no "no direct experience", no "I'd get up to speed". Instead say what they have actually BUILT that makes them able to deliver this, and say they can deliver it. Keep everything else, keep the links exactly, and return the same JSON shape.`;
       try {
+        say('Removing tools you have not used');
         const stripped = await callModel(client, stripPrompt);
         const still = falseToolClaims(lacking, stripped.cover_letter || '');
         const keptFields = Object.keys(draft.fields || {}).every((k) => typeof stripped.fields?.[k] === 'string');
@@ -784,6 +798,7 @@ ${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fie
 
 Its subject is "${draft.subject}", and ${subjectFaults.join(', and ')}. Write a better one by rule 6 above: work down gate, then proof, then their situation, and use the first that applies. 40 to 65 characters, sharpest words first, a real fact rather than a promise, no applicant name, not a repeat of the job title. It has to be a line nobody else applying to this post could have sent. Change ONLY the subject, leave the message exactly as it is, and return the same JSON shape.`;
     try {
+      say('Sharpening the subject line');
       const resubject = await callModel(client, subjPrompt);
       const stillWeak = weakSubject(resubject.subject || '', profile.name, job.title);
       if (resubject.subject && stillWeak.length < subjectFaults.length) {
@@ -806,6 +821,7 @@ ${JSON.stringify({ subject: draft.subject, cover_letter: draft.cover_letter, fie
 
 It names a past employer or client: ${employers.join(', ')}. Rewrite so no past employer or client is named. Keep every fact, number and result exactly as it is, and keep the sentence just as concrete: "in a previous role", "at an agency I worked with", "for a client". The applicant's OWN products and portfolio projects may stay named. Change nothing else, keep the links exactly, and return the same JSON shape.`;
     try {
+      say('Taking out past employer names');
       const anon = await callModel(client, anonPrompt);
       const still = namedEmployers(anon.cover_letter || '');
       const keptFields = Object.keys(draft.fields || {}).every((k) => typeof anon.fields?.[k] === 'string');
@@ -816,6 +832,7 @@ It names a past employer or client: ${employers.join(', ')}. Rewrite so no past 
     }
   }
 
+  say('Checking every claim against your resume');
   const factResult = await factCheck(client, job, profile, draft);
   const factChecked = factResult !== 'failed';
   const checked = factResult === 'failed' ? null : factResult;

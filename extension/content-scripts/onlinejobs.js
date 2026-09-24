@@ -8,7 +8,18 @@ console.log('[JF] Content script loaded on:', window.location.href);
   let isProcessing = false;
 
   // Listen for messages from background/popup
+  // Whatever UI is currently waiting on a generate. The background pushes
+  // phase updates as separate messages because sendResponse only fires once.
+  let progressSink = null;
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'generateProgress') {
+      if (progressSink && message.phase) {
+        try { progressSink(message.phase); } catch (e) { /* UI went away */ }
+      }
+      sendResponse({ ok: true });
+      return true;
+    }
     // Readiness probe. The background polls this instead of sleeping a fixed
     // amount and hoping the page arrived. Reporting the form shape too means
     // one poll answers both "is the script alive" and "is the form usable".
@@ -273,13 +284,19 @@ console.log('[JF] Content script loaded on:', window.location.href);
       job.description = pageDesc;
     }
 
-    // Generate application (the slow step: one AI call)
+    // The slow step: several AI passes, ~30s. Each one reports itself.
     stage('Writing your application...');
-    const application = await chrome.runtime.sendMessage({
-      action: 'generateApplication',
-      job,
-      formFields,
-    });
+    progressSink = (phase) => stage(phase + '...');
+    let application;
+    try {
+      application = await chrome.runtime.sendMessage({
+        action: 'generateApplication',
+        job,
+        formFields,
+      });
+    } finally {
+      progressSink = null;
+    }
 
     if (application.manual_required) {
       showOverlay(`
@@ -487,10 +504,13 @@ console.log('[JF] Content script loaded on:', window.location.href);
       status.textContent = busyText;
       status.style.color = '';
       let next;
+      progressSink = (phase) => { status.textContent = phase + '...'; };
       try {
         next = await chrome.runtime.sendMessage({ action: 'generateApplication', job, formFields, options });
       } catch (err) {
         next = { error: err?.message || 'Could not reach the extension' };
+      } finally {
+        progressSink = null;
       }
       if (!next || next.error || next.manual_required) {
         controls.forEach((el) => el && (el.disabled = false));

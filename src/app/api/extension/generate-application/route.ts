@@ -103,6 +103,45 @@ ${profile.phone || ''}`.trim());
       });
     }
 
+    // The write takes ~30s across several passes. Without this the extension
+    // shows one frozen label the whole time and looks hung. Streaming is
+    // opt-in: older extension builds and the popup keep the plain JSON reply,
+    // and a client that asks for the stream but never receives the progress
+    // lines (a proxy that buffers, say) still gets the same final result.
+    if (body.stream) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const line = (obj: unknown) => {
+            try { controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n')); } catch { /* client went away */ }
+          };
+          try {
+            const application = await writeApplication(client, job, profile, {
+              role,
+              formFields,
+              improve: asDraft(body.improve),
+              avoid: asDraft(body.avoid),
+              onProgress: (phase) => line({ type: 'progress', phase }),
+            });
+            line({ type: 'result', result: { ...application, ...roleInfo, ...manualInfo } });
+          } catch (err) {
+            const message =
+              err instanceof WriterError ? err.message : 'Failed to generate application';
+            if (!(err instanceof WriterError)) console.error('Generate application error:', err);
+            line({ type: 'result', result: { error: message } });
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
     const application = await writeApplication(client, job, profile, {
       role,
       formFields,

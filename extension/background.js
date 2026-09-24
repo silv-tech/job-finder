@@ -241,6 +241,8 @@ async function getAuthHeaders() {
 
 // fetch() to our API with auth. On a 401 it force-refreshes the token and
 // retries once, so an expired session never silently stops auto-apply.
+const NEWLINE = String.fromCharCode(10);
+
 async function apiFetch(url, init = {}) {
   const release = keepAwake(); // AI calls can take longer than Chrome's idle limit
   try {
@@ -804,7 +806,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'generateApplication') {
-    handleGenerateApplication(message.job, message.formFields, message.options).then(sendResponse);
+    // sendResponse fires once, so progress goes back to the tab as its own
+    // messages while the request is still in flight.
+    const tabId = sender?.tab?.id;
+    const onProgress = typeof tabId === 'number'
+      ? (phase) => { chrome.tabs.sendMessage(tabId, { action: 'generateProgress', phase }).catch(() => {}); }
+      : undefined;
+    handleGenerateApplication(message.job, message.formFields, message.options, onProgress).then(sendResponse);
     return true;
   }
 
@@ -1045,7 +1053,7 @@ async function handleMatchJobs(jobs) {
 
 // options: { role, improve, avoid } for switching focus, "Make it better" and
 // "Regenerate" (see /api/extension/generate-application).
-async function handleGenerateApplication(job, formFields, options = {}) {
+async function handleGenerateApplication(job, formFields, options = {}, onProgress) {
   if (!(await isAuthenticated())) {
     return { error: 'Not logged in' };
   }
@@ -1063,6 +1071,9 @@ async function handleGenerateApplication(job, formFields, options = {}) {
         role: options?.role,
         improve: options?.improve,
         avoid: options?.avoid,
+        // Ask for phase-by-phase progress. Only honoured when a caller wants
+        // it; the server still answers plain JSON for everyone else.
+        stream: !!onProgress,
       }),
     });
 
@@ -1074,6 +1085,40 @@ async function handleGenerateApplication(job, formFields, options = {}) {
       const data = await res.json().catch(() => null);
       return { error: data?.error || `API error: ${res.status}` };
     }
+    // NDJSON: progress lines first, then one final line carrying the result.
+    // If anything about the stream misbehaves we fall through to the last line
+    // we parsed, so a buffered proxy costs the progress text and nothing else.
+    if (onProgress && res.body && (res.headers.get('content-type') || '').includes('ndjson')) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+      const consume = (chunk) => {
+        buffer += chunk;
+        let cut = buffer.indexOf(NEWLINE);
+        while (cut !== -1) {
+          const raw = buffer.slice(0, cut).trim();
+          buffer = buffer.slice(cut + 1);
+          if (raw) {
+            try {
+              const msg = JSON.parse(raw);
+              if (msg.type === 'progress') onProgress(msg.phase);
+              else if (msg.type === 'result') result = msg.result;
+            } catch { /* a partial or malformed line is not worth failing over */ }
+          }
+          cut = buffer.indexOf(NEWLINE);
+        }
+      };
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        consume(decoder.decode(value, { stream: true }));
+      }
+      consume(decoder.decode());
+      if (buffer.trim()) consume(buffer + NEWLINE);
+      return result || { error: 'No application came back' };
+    }
+
     return await res.json();
   } catch (err) {
     return { error: err.message };
