@@ -9,6 +9,20 @@ console.log('[JF] Content script loaded on:', window.location.href);
 
   // Listen for messages from background/popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Readiness probe. The background polls this instead of sleeping a fixed
+    // amount and hoping the page arrived. Reporting the form shape too means
+    // one poll answers both "is the script alive" and "is the form usable".
+    if (message.action === 'ping') {
+      let fields = 0;
+      try { fields = detectFormFields().length; } catch (e) { fields = 0; }
+      sendResponse({
+        ready: document.readyState !== 'loading',
+        url: window.location.href,
+        fields,
+        hasTextarea: !!document.querySelector('textarea'),
+      });
+      return true;
+    }
     if (message.action === 'scanJobs') {
       checkAuthThen(() => scanAndMatch()).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
       return true;
@@ -120,10 +134,24 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
   }
 
+  // Wait until the apply form actually exists, rather than guessing with a
+  // sleep. A fixed sleep that expires early hard-fails the apply; on the
+  // unattended path that happens AFTER markApplied, burning the job. Gate on a
+  // textarea too: a half-rendered form (subject present, message not) would
+  // otherwise be filled and sent incomplete.
+  async function waitForFormFields(timeoutMs = 4000) {
+    const deadline = Date.now() + timeoutMs;
+    let fields = detectFormFields();
+    while (Date.now() < deadline && (fields.length === 0 || !document.querySelector('textarea'))) {
+      await sleep(100);
+      fields = detectFormFields();
+    }
+    return fields;
+  }
+
   // Auto fill + send without any UI overlay (used by auto-apply mode)
   async function handleAutoFillAndSend(job) {
-    await sleep(1000);
-    const formFields = detectFormFields();
+    const formFields = await waitForFormFields();
     if (formFields.length === 0) return { success: false, error: 'No form fields' };
 
     if (!job.description || job.description.length < 100) {
@@ -225,9 +253,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     fillStarted = true;
     const stage = (text) => { try { if (onStage) onStage(text); } catch (e) { /* caller went away */ } };
     stage('Reading the form...');
-    await sleep(1000);
-
-    const formFields = detectFormFields();
+    const formFields = await waitForFormFields();
 
     if (formFields.length === 0) {
       return { success: false, error: 'No form fields found' };

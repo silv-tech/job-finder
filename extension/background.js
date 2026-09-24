@@ -684,8 +684,7 @@ async function applyToJobs(jobs) {
       await saveRunState({ tabIds: [bgTab.id], total: pending.length, done: index, current: job.title });
       try {
         await chrome.tabs.update(bgTab.id, { url: job.apply_url });
-        await waitForTabLoad(bgTab.id);
-        await sleep(2500);
+        await waitForContentScript(bgTab.id, (r) => r.ready);
 
         // Click "Apply for this job" and get description
         let clickResult;
@@ -712,8 +711,7 @@ async function applyToJobs(jobs) {
         }
 
         if (clickResult?.navigated) {
-          await waitForTabLoad(bgTab.id);
-          await sleep(2500);
+          await waitForContentScript(bgTab.id, (r) => r.fields > 0 && r.hasTextarea);
         }
 
         // Point of no return: record before sending
@@ -1268,8 +1266,7 @@ async function handleNavigateAndApply(job, tabId) {
   try {
     // Step 1: Navigate to the job detail page
     await chrome.tabs.update(tabId, { url: job.apply_url });
-    await waitForTabLoad(tabId);
-    await sleep(2000);
+    await waitForContentScript(tabId, (r) => r.ready);
 
     // Step 2: Scrape description and click "APPLY FOR THIS JOB"
     let result;
@@ -1286,8 +1283,7 @@ async function handleNavigateAndApply(job, tabId) {
     }
 
     if (result?.navigated) {
-      await waitForTabLoad(tabId);
-      await sleep(2000);
+      await waitForContentScript(tabId, (r) => r.fields > 0 && r.hasTextarea);
     }
 
     // Step 3: Fill the form, passing the job with full description
@@ -1306,19 +1302,49 @@ async function handleNavigateAndApply(job, tabId) {
 
 function waitForTabLoad(tabId) {
   return new Promise((resolve) => {
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    }
-    chrome.tabs.onUpdated.addListener(listener);
-    // Timeout after 15 seconds
-    setTimeout(() => {
+    let settled = false;
+    function finish() {
+      if (settled) return;
+      settled = true;
       chrome.tabs.onUpdated.removeListener(listener);
       resolve();
-    }, 15000);
+    }
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') finish();
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    // The listener attaches only after tabs.update() has been awaited, so a
+    // fast load can fire 'complete' before we are listening and the event is
+    // gone for good. Without this check that case waited the full 15s.
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab && tab.status === 'complete') finish();
+    }).catch(() => {});
+    setTimeout(finish, 15000);
   });
+}
+
+// Poll the content script rather than sleeping a fixed amount.
+// waitForTabLoad registers its onUpdated listener AFTER tabs.update() was
+// already awaited, so a fast load can fire 'complete' before the listener
+// attaches and the promise then sits for the full 15s cap. Asking the content
+// script directly is both faster and a stronger signal: it proves the script is
+// injected and can report whether the form is actually usable yet.
+async function waitForContentScript(tabId, isReady, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    try {
+      const reply = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+      if (reply) {
+        last = reply;
+        if (!isReady || isReady(reply)) return reply;
+      }
+    } catch (e) {
+      // No content script on this document yet; keep polling until the deadline.
+    }
+    await sleep(100);
+  }
+  return last;
 }
 
 function sleep(ms) {
