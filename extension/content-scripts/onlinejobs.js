@@ -173,7 +173,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
     if (application.error) return { success: false, error: application.error };
 
-    fillFormFields(formFields, application);
+    const filled = fillFormFields(formFields, application);
+
+    // Nothing between this and sendBtn.click() checks that the fill worked, so
+    // an unmatched form used to send an EMPTY application to a real employer
+    // and spend the Apply Points on it. The message body is the application;
+    // without it there is nothing worth sending.
+    if (!filled.includes('message')) {
+      return { success: false, error: 'Message field not filled, refusing to send' };
+    }
 
     // Fill apply points with the tier the match earned, not a fixed 2.
     const apToSpend = pointsToSpend(job);
