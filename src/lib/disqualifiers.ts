@@ -13,19 +13,35 @@ import { clampPost } from '@/lib/prompt-safety';
 // "X experience is essential". A bare list of required skills is NOT a gate,
 // which is why there is no pattern for "Required: ..." here: that is usually
 // a section heading, and treating it as a gate would skip jobs worth trying.
+// Each form below was found on a real post. The word order and the verb vary
+// far more than they look like they should: "apply only if" and "only apply if"
+// are both common, and a post is as likely to demand "knowledge of" as
+// "experience with". A form that is missing here is a post we apply to after it
+// asked us not to, which costs points and goodwill.
 const GATE_PATTERNS: RegExp[] = [
-  /do not apply (?:if you (?:have not|haven't|don't have|do not have)|unless you (?:have|know))\b([^.!?\n]{0,120})/gi,
-  /don't apply (?:if you (?:have not|haven't|don't have)|unless you (?:have|know))\b([^.!?\n]{0,120})/gi,
+  // "do not apply if you have not / cannot / are not / do not know ..."
+  /do(?:n't| not) apply\s+(?:if you (?:have not|haven't|don't have|do not have|cannot|can't|are not|aren't|do not know|don't know|lack)|unless you (?:have|know|are))\b([^.!?\n]{0,120})/gi,
+  // Both word orders of the "only apply" gate.
   /only apply if you (?:have|know|are experienced)\b([^.!?\n]{0,120})/gi,
+  /\bapply only if you (?:have|know|are experienced)\b([^.!?\n]{0,120})/gi,
   /\b([A-Za-z0-9.+#/& -]{2,40}?) experience is (?:essential|required|a must|mandatory|non-negotiable)/gi,
-  /\bmust have (?:prior |proven |hands[- ]on |direct |solid )?experience (?:with|in|using)\b([^.!?\n]{0,80})/gi,
-  /\b(?:experience|proficiency) (?:with|in|using)\b([^.!?\n]{0,80})\bis (?:essential|required|mandatory|a must)/gi,
+  // "must have experience with X", and equally "must have knowledge of X".
+  /\bmust (?:have|possess)\s+(?:prior |proven |hands[- ]on |direct |solid |working |strong )?(?:experience|knowledge|proficiency|expertise|familiarity)\s+(?:with|in|using|of|for|on)\b([^.!?\n]{0,80})/gi,
+  /\b(?:experience|proficiency|knowledge) (?:with|in|using|of)\b([^.!?\n]{0,80})\bis (?:essential|required|mandatory|a must)/gi,
 ];
 
 // Things a gate can name that are not a capability we could ever "lack", or
 // that the applicant plainly has. Never disqualify on these.
 const NOT_A_BLOCKER =
   /\b(experience|experiences|skill|skills|background|knowledge|english|communication|communicating|written|spoken|fluent|proactive|reliable|organized|organised|detail|details|oriented|attitude|work ethic|internet|connection|computer|laptop|headset|quiet|environment|time|hours|availability|available|remote|full[- ]?time|part[- ]?time|years?|month|degree|education|resume|cv|portfolio|references?|team|player|self|starter|motivated|learn|learning|willing|ability|able|strong|excellent|good|great|solid|basic|advanced|the|a|an|and|or|with|in|using|this|that|it|them|us|you|your|our|before|prior|least|minimum|at)\b/i;
+
+// Nationalities, languages and accents get capitalised mid-sentence and so look
+// exactly like product names to candidateTerms, but they are not a tool anyone
+// "lacks". Whether a post that wants a British accent is a good fit is the lane
+// score's job, not a hard gate's, and blocking with the reason "British" would be
+// nonsense the user then has to override.
+const NOT_A_PRODUCT =
+  /^(?:british|american|australian|canadian|irish|scottish|filipino|philippine|us|usa|uk|eu|aussie|native|accents?|spanish|german|french|tagalog|bisaya|cebuano)$/i;
 
 // A requirement worth blocking on looks like a product or platform name.
 function candidateTerms(fragment: string): string[] {
@@ -40,6 +56,7 @@ function candidateTerms(fragment: string): string[] {
     // Product names are capitalised mid-sentence, or contain a digit or dot.
     .filter((w) => /^[A-Z][A-Za-z0-9.+#/-]{1,29}$/.test(w) || /^[A-Za-z]+[0-9][A-Za-z0-9]*$/.test(w))
     .filter((w) => !NOT_A_BLOCKER.test(w))
+    .filter((w) => !NOT_A_PRODUCT.test(w))
     .map((w) => w.replace(/[.,]+$/, ''))
     .filter((w) => w.length >= 2);
 }
