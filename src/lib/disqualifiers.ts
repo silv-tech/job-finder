@@ -1,3 +1,5 @@
+import { clampPost } from '@/lib/prompt-safety';
+
 // Some posts name a hard requirement and mean it. The GHL/Simpro post said
 // "Simpro experience is essential. Please do not apply if you have not worked
 // with Simpro before." We applied anyway, spent a point, and told an employer
@@ -50,7 +52,7 @@ export interface Disqualification {
 
 // Returns the named requirements the applicant's background does not mention.
 export function checkDisqualifiers(description: string, background: string): Disqualification {
-  const desc = (description || '').slice(0, 12000);
+  const desc = clampPost(description || '');
   const mine = (background || '').toLowerCase();
   const missing: string[] = [];
   let quote = '';

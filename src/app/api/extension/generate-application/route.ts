@@ -4,7 +4,7 @@ import { verifyExtensionAuth } from '@/lib/auth-api';
 import { stripAiTells } from '@/lib/ai-config';
 import { detectManualRequirements } from '@/lib/manual-requirements';
 import { loadWriterProfile } from '@/lib/stored-profile';
-import { writeApplication, WriterError, type Draft, type FormField } from '@/lib/application-writer';
+import { writeApplication, WriterError, costOf, newCostMeter, type Draft, type FormField } from '@/lib/application-writer';
 import { ROLE_KEYS, ROLE_LABELS, detectRole, isRoleKey, type RoleKey } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +36,12 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const client = getClient();
+
+  // Owned by the route rather than the writer, and declared outside the try so
+  // the catch can still report it: by the time the writer throws, the model calls
+  // behind it are already billed, and a cost that goes out of scope with the
+  // exception is money the ledger never sees.
+  const meter = newCostMeter();
 
   try {
     const body = await req.json();
@@ -122,13 +128,14 @@ ${profile.phone || ''}`.trim());
               improve: asDraft(body.improve),
               avoid: asDraft(body.avoid),
               onProgress: (phase) => line({ type: 'progress', phase }),
+              meter,
             });
             line({ type: 'result', result: { ...application, ...roleInfo, ...manualInfo } });
           } catch (err) {
             const message =
               err instanceof WriterError ? err.message : 'Failed to generate application';
             if (!(err instanceof WriterError)) console.error('Generate application error:', err);
-            line({ type: 'result', result: { error: message } });
+            line({ type: 'result', result: { error: message, cost: costOf(meter) } });
           }
           controller.close();
         },
@@ -147,13 +154,17 @@ ${profile.phone || ''}`.trim());
       formFields,
       improve: asDraft(body.improve),
       avoid: asDraft(body.avoid),
+      meter,
     });
     return NextResponse.json({ ...application, ...roleInfo, ...manualInfo });
   } catch (err) {
     if (err instanceof WriterError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message, cost: costOf(meter) }, { status: err.status });
     }
     console.error('Generate application error:', err);
-    return NextResponse.json({ error: 'Failed to generate application' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to generate application', cost: costOf(meter) },
+      { status: 500 }
+    );
   }
 }

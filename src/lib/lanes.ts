@@ -1,3 +1,5 @@
+import { clampPost } from '@/lib/prompt-safety';
+
 import { detectRole, type RoleKey } from '@/lib/roles';
 
 // The four kinds of job the applicant actively wants, each searched on its own
@@ -157,7 +159,7 @@ export function scoreForLane(
 ): LaneScore {
   const lane = LANES[laneKey];
   const title = (job.title || '').toLowerCase();
-  const desc = (job.description || '').toLowerCase().slice(0, 8000);
+  const desc = clampPost(job.description || '').toLowerCase();
   const text = `${title}\n${desc}`;
 
   const roleDetected = detectRole(job);

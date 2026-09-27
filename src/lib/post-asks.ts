@@ -1,19 +1,41 @@
+import { clampPost } from '@/lib/prompt-safety';
+
 // What a post explicitly asks applicants to send. The GHL/Simpro post listed
 // seven things, including "Your hourly rate", and the application answered
 // four and dodged the rate. An employer reads that as not following
 // instructions, which is the cheapest possible way to lose.
 
-const TRIGGERS =
-  /(to apply[^.\n]{0,40}|please (?:send|include|provide|answer|share|tell|state|list)|when applying|in your (?:application|reply|response|message)|please also|kindly (?:send|include|provide|answer))/i;
+const VERBS =
+  'send|include|provide|answer|share|tell|state|list|attach|submit|describe|outline|specify|detail|confirm|explain|start|begin|reply|respond|note|indicate|mention';
+const TRIGGERS = new RegExp(
+  `(to apply[^.\\n]{0,40}|please (?:also )?(?:${VERBS})|when applying|in your (?:application|reply|response|message|proposal|cover letter)|please also|kindly (?:${VERBS}))`,
+  'i'
+);
+
+// A heading that OPENS a list of application instructions. These are never asks
+// themselves: "How to Apply (Screening Checklist)" answers nothing, and handing
+// it to the writer as an ask both wastes a repair pass and reads as noise.
+const SECTION =
+  /^\s*(?:how to apply|to apply|application (?:process|instructions|requirements|checklist)|screening(?: checklist| questions?| process)?|next steps?|before you apply|to be considered|when you apply|what (?:we|i) need from you)\b/i;
 
 // A line that looks like an item in a list of asks.
-const BULLET = /^\s*(?:[-*•–—]|\d+[.)])\s*(.{2,120})$/;
+const BULLET = /^\s*(?:[-*•–—]|\d+[.)])\s*(.{2,200})$/;
+
+// A line ending in a colon is introducing something, not answering anything, so
+// it closes whatever list was being collected and may open a new one.
+const OPENS_LIST = /:\s*$/;
+
+// A note in parentheses is commentary on the list, not another item.
+const PARENTHETICAL = /^\s*\(.*\)\s*$/;
 
 function clean(s: string): string {
   return s
     .replace(/\s+/g, ' ')
-    .replace(/^[-*•–—\d.)\s]+/, '')
-    .replace(/[.:;]+$/, '')
+    // Strip a leading LIST MARKER only. The old pattern ate any leading digits,
+    // which turned "2-3 live URLs or GitHub repos" into "live URLs" and lost the
+    // quantity the employer actually asked for.
+    .replace(/^\s*(?:[-*•‣]|\d{1,2}[.)])\s+/, '')
+    .replace(/[.:;!]+$/, '')
     .trim();
 }
 
@@ -21,28 +43,70 @@ function clean(s: string): string {
 const TOO_VAGUE = /^(?:your|the|a|an|and|or|please|thanks?|thank you|apply|application|resume|cv)$/i;
 
 export function extractAsks(description: string): string[] {
-  const text = (description || '').slice(0, 12000);
+  const text = clampPost(description || '');
   const lines = text.split(/\r?\n/);
   const asks: string[] = [];
   const push = (s: string) => {
     const v = clean(s);
-    if (v.length >= 3 && v.length <= 140 && !TOO_VAGUE.test(v) && !asks.some((a) => a.toLowerCase() === v.toLowerCase())) {
-      asks.push(v);
+    // 200, not 140: "Details on at least 1 AI integration project you built
+    // (explain what model/API you used, what the workflow did, and how you
+    // handled the integration)" is 147 characters and is a real ask.
+    if (v.length < 3 || v.length > 200 || TOO_VAGUE.test(v)) return;
+    const lv = v.toLowerCase();
+    for (let i = 0; i < asks.length; i++) {
+      const la = asks[i].toLowerCase();
+      if (la === lv) return;
+      // The same instruction often reaches here twice, once from the inline
+      // path and once as an item in the list below its heading. Keep the
+      // shorter: the longer copy carries the post's preamble, not more ask.
+      if (la.includes(lv)) { asks[i] = v; return; }
+      if (lv.includes(la)) return;
     }
+    asks.push(v);
   };
 
-  // A trigger line opens a list: collect the bullets that follow it.
+  // A trigger line or a section heading opens a list: collect what follows.
   for (let i = 0; i < lines.length; i++) {
-    if (!TRIGGERS.test(lines[i])) continue;
+    const isSection = SECTION.test(lines[i]);
+    if (!isSection && !TRIGGERS.test(lines[i])) continue;
 
-    // "Please also briefly explain one system you have built" is itself an ask.
-    const inline = lines[i].replace(/^.*?(?:please (?:also )?|kindly )/i, '').trim();
-    if (inline.length > 12 && !/^(?:send|include|provide|answer|share)\s*:?$/i.test(inline)) push(inline);
+    // A heading and a line ending in a colon introduce the asks; they are not
+    // asks themselves. "Please also briefly explain one system you have built"
+    // is, so keep that.
+    const opensList = OPENS_LIST.test(lines[i]);
+    if (!isSection && !opensList) {
+      const inline = lines[i].replace(/^.*?(?:please (?:also )?|kindly )/i, '').trim();
+      if (inline.length > 12 && !new RegExp(`^(?:${VERBS})\\s*:?$`, 'i').test(inline)) push(inline);
+    }
 
-    for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
-      const m = lines[j].match(BULLET);
-      if (m) { push(m[1]); continue; }
-      if (lines[j].trim() === '') continue;
+    let sawBullet = false;
+    for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
+      const line = lines[j];
+      if (line.trim() === '') continue;
+
+      const m = line.match(BULLET);
+      if (m) { sawBullet = true; push(m[1]); continue; }
+
+      // A bulleted list ends at the first unmarked line. Without this, the
+      // "Thanks!" after a list of bullets became an ask.
+      if (sawBullet) break;
+
+      // A new heading or another "please provide:" ends this list and opens its
+      // own, which this same loop reaches on a later pass.
+      if (SECTION.test(line) || OPENS_LIST.test(line)) break;
+
+      // "(Applications missing live samples will not be reviewed.)" is a note
+      // about the list, not another item in it.
+      if (PARENTHETICAL.test(line)) continue;
+
+      // Real posts write these items as blank-line-separated paragraphs far more
+      // often than as bullets. Accept an unmarked line when the opening line
+      // ended in a colon, which is what makes it a list rather than prose. Two
+      // words minimum, so a stray one-word label or sign-off is not an ask, but
+      // "Your rate." still is. TOO_VAGUE catches the pleasantries.
+      const words = line.trim().split(/\s+/).length;
+      if (opensList && words >= 2 && line.trim().length <= 240) { push(line); continue; }
+
       break; // the list has ended
     }
   }

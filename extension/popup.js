@@ -210,6 +210,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       exec_assistant: 'Exec Assistant',
       general_va: 'General VA',
     };
+    // The warning is on today's TOTAL spend, not on any average. He has $10 of
+    // credit and wants it to last, so what he needs flagged is "today is eating
+    // the budget", and a total says that outright. An average cannot: it stays
+    // flat as the day gets expensive, because every extra message divides it
+    // again. Per application sent is worse still, as that divisor is 0 for most
+    // of a day in review mode. The average stays on screen as information.
+    // Compared with a hair of slack, because a total is a SUM of floats and a
+    // sum drifts upwards. At the measured 10 cents a message this is not a
+    // curiosity: twenty of them add up to 2.0000000000000004, so a day landing
+    // exactly on the line would trip a warning it has not earned. Whatever this
+    // number is retuned to, keep the slack.
+    //
+    // $2.00 is set off the measured prompt sizes, not a guess: a message costs
+    // roughly 10 cents, and the daily cap of 10 applications plus a couple of
+    // regenerates makes a full normal day about $1.20. A line at $0.50 would
+    // therefore be lit every single day, which makes it furniture rather than a
+    // signal. $2.00 means something genuinely unusual is burning credit. Worth
+    // resetting once a few real days are in the ledger: totalUsd divided by
+    // totalGenerations is the true per-message cost, and twice a normal day's
+    // total is the number that belongs here.
+    const COST_WARN_DAY_USD = 2.00;
+
+    // Counted per MESSAGE WRITTEN, not per application sent: in review mode a
+    // message is paid for whether or not it goes out, and an average over sends
+    // alone would understate what a day actually costs. The sent count is shown
+    // next to it so the gap between the two explains itself, rather than looking
+    // like applications went missing.
+    // Whole cents for a day's spend, tenths of a cent for one message: at four
+    // cents each, two decimal places would round every average to $0.04.
+    function costLine(cost) {
+      const usd = Number(cost && cost.usd);
+      const gens = Number(cost && cost.generations);
+      const apps = Number(cost && cost.applications);
+      const spent = Number.isFinite(usd) && usd > 0 ? usd : 0;
+      const written = Number.isFinite(gens) && gens > 0 ? Math.round(gens) : 0;
+      const sent = Number.isFinite(apps) && apps > 0 ? Math.round(apps) : 0;
+      const avg = written > 0 ? spent / written : 0;
+      // Nothing is gained by reading "3 written, 3 sent".
+      const counted = written === sent
+        ? `${written} message${written === 1 ? '' : 's'} written and sent`
+        : `${written} message${written === 1 ? '' : 's'} written, ${sent} sent`;
+      return {
+        spent,
+        avg,
+        text: written === 0
+          ? 'API cost today: $0.00, no messages written yet.'
+          : `API cost today: $${spent.toFixed(2)} (${counted}, avg $${avg.toFixed(3)})`,
+      };
+    }
+
     function paintToday() {
       chrome.runtime.sendMessage({ action: 'getBudget' }, (b) => {
         if (!b) return;
@@ -233,6 +283,23 @@ document.addEventListener('DOMContentLoaded', async () => {
           const hhmm = isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           set('today-last-cycle', `Last cycle: ${hhmm} - ${c.status}${c.detail ? ' (' + c.detail + ')' : ''}`);
         }
+
+        // What the API charged for today's messages. A server too old to send
+        // a cost, or an error path that sent none, reads as $0.00 rather than
+        // throwing: one exception in here kills every listener set up after it.
+        const cost = b.cost || {};
+        const today = costLine(cost);
+        set('today-cost', today.text);
+        const costEl = document.getElementById('today-cost');
+        if (costEl) costEl.classList.toggle('scan-error', today.spent > COST_WARN_DAY_USD + 1e-9);
+
+        const totalUsd = Number(cost.totalUsd);
+        const totalGens = Number(cost.totalGenerations);
+        const allTime = Number.isFinite(totalUsd) && totalUsd > 0 ? totalUsd : 0;
+        const allGens = Number.isFinite(totalGens) && totalGens > 0 ? Math.round(totalGens) : 0;
+        set('today-cost-total', allTime > 0 || allGens > 0
+          ? `All time: $${allTime.toFixed(2)} over ${allGens} message${allGens === 1 ? '' : 's'}.`
+          : '');
       });
     }
     // Jobs that need a Loom, a test or an external form. These used to exist

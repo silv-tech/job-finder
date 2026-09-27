@@ -93,6 +93,102 @@ async function recordSpend(ap) {
   await chrome.storage.local.set({ budget: b });
 }
 
+// --- API cost ledger --------------------------------------------------------
+// Every application's message is written by the Anthropic API, and that is real
+// money. It is booked HERE, at generation, because a message is paid for
+// whether or not it is ever sent: review-before-send is the default, so most of
+// a day's spend can sit in drafts he has not clicked Send on yet. Booking it at
+// the send would have shown $0 while the credits drained, which is the exact
+// surprise this ledger exists to prevent. The send only counts the application.
+// Same day key as the Apply Points budget above: one day boundary for both.
+
+// Anything the server sends is treated as missing until it proves to be a
+// number. An older server has no cost field at all, and an error path can send
+// a partial one; neither may be allowed to throw.
+function costNum(value) {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+const EMPTY_COST = { usd: 0, calls: 0, in: 0, cacheRead: 0, cacheWrite: 0, out: 0 };
+
+// The six numbers we keep, from whatever shape actually arrived.
+function readCost(cost) {
+  if (!cost || typeof cost !== 'object') return { ...EMPTY_COST };
+  return {
+    usd: costNum(cost.usd),
+    calls: costNum(cost.calls),
+    in: costNum(cost.in),
+    cacheRead: costNum(cost.cacheRead),
+    cacheWrite: costNum(cost.cacheWrite),
+    out: costNum(cost.out),
+  };
+}
+
+function addCost(a, b) {
+  return {
+    usd: costNum(a && a.usd) + costNum(b && b.usd),
+    calls: costNum(a && a.calls) + costNum(b && b.calls),
+    in: costNum(a && a.in) + costNum(b && b.in),
+    cacheRead: costNum(a && a.cacheRead) + costNum(b && b.cacheRead),
+    cacheWrite: costNum(a && a.cacheWrite) + costNum(b && b.cacheWrite),
+    out: costNum(a && a.out) + costNum(b && b.out),
+  };
+}
+
+async function getCostLedger() {
+  const stored = (await chrome.storage.local.get('costLedger')).costLedger;
+  const today = phtDayKey();
+  if (!stored || stored.day !== today) {
+    // Today's counters start again; the all-time totals carry across the day
+    // boundary, which is the only place they live.
+    const fresh = {
+      day: today,
+      generations: 0,
+      applications: 0,
+      ...EMPTY_COST,
+      totalUsd: costNum(stored && stored.totalUsd),
+      totalGenerations: costNum(stored && stored.totalGenerations),
+      totalApplications: costNum(stored && stored.totalApplications),
+    };
+    await chrome.storage.local.set({ costLedger: fresh });
+    return fresh;
+  }
+  return stored;
+}
+
+// Money is recorded the moment it is SPENT, not when an application is sent.
+// Review-before-send is the default, so a message can be generated, paid for,
+// and never sent: recording at the send would have shown $0 while the credits
+// drained, which is the exact surprise this ledger exists to prevent. A
+// regenerate ("Make it better") is another paid generation and counts as one.
+async function recordGeneration(cost) {
+  const c = readCost(cost);
+  const l = await getCostLedger();
+  const next = {
+    ...l,
+    ...addCost(l, c),
+    generations: costNum(l.generations) + 1,
+    totalUsd: costNum(l.totalUsd) + c.usd,
+    totalGenerations: costNum(l.totalGenerations) + 1,
+  };
+  await chrome.storage.local.set({ costLedger: next });
+  return next;
+}
+
+// A send. The money was already counted when the message was written, so this
+// only counts the application.
+async function recordSentApplication() {
+  const l = await getCostLedger();
+  const next = {
+    ...l,
+    applications: costNum(l.applications) + 1,
+    totalApplications: costNum(l.totalApplications) + 1,
+  };
+  await chrome.storage.local.set({ costLedger: next });
+  return next;
+}
+
 // One lane per cycle. The first lane is checked every other cycle because it is
 // the one he most wants and posts there go stale fastest; a flat rotation would
 // only reach it once every four cycles.
@@ -753,6 +849,9 @@ The message is drafted and waiting in the popup.`,
           appliedCount++;
           // Points are spent the moment it sends, so the ledger moves here.
           await recordSpend(job.apply_points || 1);
+          // Only the count. The money for this message was already booked when
+          // it was written, whether or not it reached this line.
+          await recordSentApplication();
           // The apply page knows the true balance; trust it over our running total.
           // readApBalance() runs before the send button is clicked, so the page
           // shows the balance BEFORE this application. Subtract what we just
@@ -915,8 +1014,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const cursor = stored.laneCursor || 0;
       const nextLane = order[cursor % order.length];
       const lastCycle = (await chrome.storage.local.get('lastCycle')).lastCycle || null;
+      const cost = await getCostLedger();
       sendResponse({
         lastCycle,
+        // Every field normalised here, so a ledger written by an older version
+        // cannot hand the popup an undefined to render.
+        cost: {
+          ...addCost(cost, EMPTY_COST),
+          generations: costNum(cost.generations),
+          applications: costNum(cost.applications),
+          totalUsd: costNum(cost.totalUsd),
+          totalGenerations: costNum(cost.totalGenerations),
+          totalApplications: costNum(cost.totalApplications),
+        },
         applied: b.applied,
         apSpent: b.apSpent,
         apBalance: b.apBalance,
@@ -1116,10 +1226,18 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
       }
       consume(decoder.decode());
       if (buffer.trim()) consume(buffer + NEWLINE);
+      // Unconditional: if the stream died before its result line, the model
+      // calls behind it were still billed. The server reports cost on its error
+      // line too, so a failed generate books what it actually spent rather than
+      // hiding it. A truncated stream with no line at all books zero, which is
+      // the one gap left and is better than pretending the call was free.
+      await recordGeneration(result && result.cost);
       return result || { error: 'No application came back' };
     }
 
-    return await res.json();
+    const data = await res.json();
+    await recordGeneration(data.cost);
+    return data;
   } catch (err) {
     return { error: err.message };
   }

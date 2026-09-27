@@ -1,3 +1,5 @@
+import { clampPost } from '@/lib/prompt-safety';
+
 // The kinds of jobs the applicant usually targets. Each application is written
 // with one of these as its focus.
 export const ROLE_KEYS = ['developer', 'management', 'automation', 'general_va', 'admin'] as const;
@@ -58,7 +60,7 @@ const ROLE_SIGNALS: Record<RoleKey, RegExp[]> = {
 // description mentions spreadsheets.
 export function detectRole(job: { title?: string; description?: string }): RoleKey | null {
   const title = (job.title || '').toLowerCase();
-  const desc = (job.description || '').toLowerCase().slice(0, 8000);
+  const desc = clampPost(job.description || '').toLowerCase();
   let best: RoleKey | null = null;
   let bestScore = 0;
   for (const key of ROLE_KEYS) {

@@ -56,3 +56,8 @@ export function stripAiTells(text: string): string {
     .replace(/[‘’]/g, "'") // curly single quotes -> straight
     .replace(/…/g, '...'); // ellipsis char -> three dots
 }
+
+// How hard the fact-check pass thinks. It is the most expensive call in the
+// pipeline by a wide margin, so this is the single biggest cost knob in the app;
+// it lives here so changing it is one edit and shows up in one diff.
+export const FACT_CHECK_EFFORT: 'medium' | 'high' = 'high';

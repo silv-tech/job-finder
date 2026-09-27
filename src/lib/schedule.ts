@@ -1,3 +1,5 @@
+import { clampPost } from '@/lib/prompt-safety';
+
 // A schedule the POST STATES as a requirement, converted to the applicant's
 // local time. extractAsks() only catches "to apply, send..." lists and
 // sentences ending in "?", so a starred hard requirement like
@@ -64,7 +66,7 @@ function fmt(minutes: number): string {
 }
 
 export function detectRequiredSchedule(description: string, now: Date = new Date()): RequiredSchedule | null {
-  const text = (description || '').slice(0, 12000);
+  const text = clampPost(description || '');
   RANGE.lastIndex = 0;
 
   for (let m = RANGE.exec(text); m; m = RANGE.exec(text)) {
