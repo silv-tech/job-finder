@@ -67,9 +67,19 @@ export function meterCall(meter: CostMeter | undefined, model: string, u: Anthro
   meter.out += out;
   // An unknown model bills nothing rather than guessing a price: a wrong number
   // here is worse than a missing one, because it is the number he budgets on.
+  let usd = 0;
   if (price) {
-    meter.usd +=
-      (fresh * price.in + read * price.in * 0.1 + writeCost * price.in + out * price.out) / 1e6;
+    usd = (fresh * price.in + read * price.in * 0.1 + writeCost * price.in + out * price.out) / 1e6;
+    meter.usd += usd;
   }
+
+  // Logged for every call, not behind a debug flag. The per-application total
+  // says what a day costs; only the per-call split says WHICH call to attack,
+  // and working that out from the aggregate took a spreadsheet and an assumption
+  // about how the output divided between three calls.
+  console.log(
+    `[call] model=${model} usd=${usd.toFixed(4)} fresh=${fresh} read=${read} ` +
+      `write5m=${write5m} write1h=${write1h} out=${out}`
+  );
 }
 

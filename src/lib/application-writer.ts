@@ -746,12 +746,17 @@ function riskySentences(text: string): string[] {
     .slice(0, 12);
 }
 
-async function factCheck(
+// Exported for evaluation only: the fabrication eval compares models on the
+// SAME prompt this ships, which is the only comparison worth anything.
+export async function factCheck(
   client: Anthropic,
   job: WriterJob,
   p: WriterProfile,
   draft: Awaited<ReturnType<typeof callModel>>,
-  meter?: CostMeter
+  meter?: CostMeter,
+  // Evaluation only. scripts/factcheck-eval.mjs compares models on the SAME
+  // prompt this ships; production never passes it and uses FACT_CHECK_MODEL.
+  modelOverride?: string
 ): Promise<Awaited<ReturnType<typeof callModel>> | null | 'failed'> {
   const highlights = Object.entries(p.role_highlights || {})
     .filter(([k, v]) => !k.startsWith('_') && typeof v === 'string')
@@ -799,7 +804,7 @@ Return ONLY this JSON. List ONLY the unsupported claims, as quoted strings: a su
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const checked = await callModel(client, prompt, {
-        model: FACT_CHECK_MODEL,
+        model: modelOverride || FACT_CHECK_MODEL,
         effort: FACT_CHECK_EFFORT,
         cacheBlocks: [{ text: factsPrefix, ttl: '1h' }],
         meter,

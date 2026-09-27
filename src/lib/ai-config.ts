@@ -9,9 +9,23 @@ export const AI_MODEL = 'claude-haiku-4-5-20251001';
 // applications read like a real person wrote them.
 export const WRITING_MODEL = 'claude-sonnet-5';
 
-// Strictest model for the fact-check pass: it goes sentence by sentence and
-// must cite a real fact for every claim about the applicant's past.
-export const FACT_CHECK_MODEL = 'claude-opus-5';
+// The fact-check pass: it goes sentence by sentence and must cite a real fact
+// for every claim about the applicant's past.
+//
+// This was claude-opus-5, and measured on real applications it was 56% of the
+// entire bill: $0.0975 of a $0.18 application, against $0.039 for the same call
+// on Sonnet 5. Opus input is 2.5x Sonnet's and its output 2.5x, and this call
+// produces the most output of the three because it rewrites the letter.
+//
+// Two things make Sonnet 5 a fair trade rather than a gamble. The task is
+// bounded entailment with every fact it needs sitting in the prompt, not
+// open-ended reasoning. And it is no longer the only guard: the screening
+// phrase, the ask coverage, the tool claims, the named employers and the AI
+// tells are all enforced deterministically in code now, so this pass answers
+// for fabricated FACTS specifically rather than for everything at once.
+//
+// Reverting is this one line, if the fabrication rate ever looks worse.
+export const FACT_CHECK_MODEL = 'claude-sonnet-5';
 
 // Sonnet 5 runs adaptive thinking by default, so response.content[0] can be a
 // `thinking` block rather than the text. Always pull the text out by type
