@@ -639,18 +639,23 @@ function withSignOff(message: string, name?: string, hiddenInstruction?: string 
 // from perJob and keep it on stable, which is where the actual saving is.
 type CacheBlock = { text: string; ttl?: '5m' | '1h' };
 
+// How hard a call thinks. Thinking bills as OUTPUT, and output is well over half
+// of what an application costs, so this is the most direct lever there is on a
+// call that does not need to reason its way to an answer.
+type Effort = 'low' | 'medium' | 'high';
+
 async function callModel(
   client: Anthropic,
   prompt: string,
   {
     model = WRITING_MODEL,
-    effort = 'medium' as 'medium' | 'high',
+    effort = 'medium' as Effort,
     cacheBlocks = [] as CacheBlock[],
     meter,
     requireLetter = true,
   }: {
     model?: string;
-    effort?: 'medium' | 'high';
+    effort?: Effort;
     cacheBlocks?: CacheBlock[];
     meter?: CostMeter;
     // The fact-check pass legitimately returns no letter when it found nothing
@@ -826,7 +831,10 @@ Return ONLY this JSON. List ONLY the unsupported claims, as quoted strings: a su
               return !!c && typeof c === 'object' && (c as { supported?: unknown }).supported === false;
             })
           : null;
-      if (process.env.WRITER_DEBUG) console.log('[fact-check] unsupported:', JSON.stringify(list));
+      // Logged always, not behind a flag: how often this pass actually FINDS
+      // something is the number that decides whether it is worth its 33% of the
+      // bill, and it cannot be recovered after the fact.
+      console.log(`[fact-check] found=${list === null ? 'malformed' : list.length}`);
       if (list === null) continue; // malformed: try once more
       if (list.length === 0) return null;
       // It found problems, so it owes us the rewrite. Without one there is
@@ -949,7 +957,18 @@ ${faults.map((f, i) => `${i + 1}. ${f}`).join('\n\n')}
 
 Fix every one of them. Keep everything that already works, keep every fact true, keep the links exactly as they are, keep any required hidden words and their position, and return the same JSON shape.`;
     try {
-      const fixed = await callModel(client, fixSuffix, { cacheBlocks: [{ text: stable, ttl: '1h' }, { text: perJob }], meter });
+      // Low effort, deliberately. The repair is a BOUNDED edit: it is handed the
+      // exact list of faults and told to fix those and change nothing else. It is
+      // not reasoning its way to an answer the way the draft and the fact-check
+      // are. And the downside is capped by the guard below, which only accepts a
+      // repair that is strictly better than the draft, so a weaker attempt is
+      // discarded rather than shipped. The risk is a wasted call, not a worse
+      // letter, which makes this the one place to cut thinking without argument.
+      const fixed = await callModel(client, fixSuffix, {
+        cacheBlocks: [{ text: stable, ttl: '1h' }, { text: perJob }],
+        effort: 'low',
+        meter,
+      });
       // Accept only if it is no worse on any axis and better on at least one.
       const after = {
         tells: findAiTells(fixed.cover_letter || '', fixed.subject || '').filter((t) => t !== 'uses an em/en dash'),
@@ -969,7 +988,11 @@ Fix every one of them. Keep everything that already works, keep every fact true,
         after.schedule.length <= (duckedSchedule ? 1 : 0);
       const before = tells.length + missed.length + claimed.length + subjectFaults.length + employers.length + (duckedSchedule ? 1 : 0);
       const now = after.tells.length + after.missed.length + after.claimed.length + after.subject.length + after.employers.length + after.schedule.length;
-      if (fixed.subject && keptFields && noWorse && now < before) draft = fixed;
+      const accepted = !!(fixed.subject && keptFields && noWorse && now < before);
+      if (accepted) draft = fixed;
+      // A rejected repair is money spent for nothing. If that turns out to be
+      // common, the repair is the call to attack next, not the fact-check.
+      console.log(`[repair] accepted=${accepted} faultsBefore=${before} after=${now}`);
       if (process.env.WRITER_DEBUG) console.log('[repair]', { before, now, faults: faults.length });
     } catch {
       // keep the draft rather than lose the application
