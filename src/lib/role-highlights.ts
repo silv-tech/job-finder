@@ -4,6 +4,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { safeFetchText } from '@/lib/safe-fetch';
 import { WRITING_MODEL, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
 import { ROLE_KEYS, type RoleHighlights } from '@/lib/roles';
+import { meterCall, type CostMeter } from '@/lib/cost-meter';
 
 // Builds the per-role "proof points" from the applicant's resume and portfolio
 // page, so each application can lead with the experience that fits the job.
@@ -50,7 +51,7 @@ async function portfolioText(url?: string): Promise<string> {
   }
 }
 
-export async function generateRoleHighlights(p: ProfileSource): Promise<RoleHighlights> {
+export async function generateRoleHighlights(p: ProfileSource, meter?: CostMeter): Promise<RoleHighlights> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('AI is not configured');
   const portfolio = await portfolioText(p.portfolio_url);
@@ -97,6 +98,11 @@ ${p.bio || ''}
     output_config: { effort: 'medium' },
     messages: [{ role: 'user', content: prompt }],
   });
+  // This runs INSIDE a generate request, so its cost belongs on that request's
+  // bill. Unmetered it was ~20-30% of an application's real cost showing up as
+  // free, which is exactly what the ledger exists to stop. Recorded before the
+  // throws below, because a refusal is billed too.
+  meterCall(meter, WRITING_MODEL, message.usage);
   if (message.stop_reason === 'max_tokens' || message.stop_reason === 'refusal') {
     throw new Error('Could not generate role examples, please try again');
   }
@@ -114,12 +120,37 @@ ${p.bio || ''}
 // Returns up-to-date highlights for the user, regenerating and saving them
 // when the resume/portfolio changed (unless hand-edited). Never throws: on any
 // failure it falls back to whatever is stored.
-export async function ensureRoleHighlights(userId: string, p: ProfileSource): Promise<RoleHighlights> {
+// Fingerprints we have already paid to generate in this process. A refresh is
+// only remembered by SAVING it, so a failing Supabase write (or a profile whose
+// bio differs between the web app and the extension) made this regenerate on
+// EVERY generate request, unmetered and forever. This caps that failure at one
+// call an hour per process instead of one per application.
+const attempted = new Map<string, number>();
+const ATTEMPT_TTL_MS = 60 * 60 * 1000;
+
+export async function ensureRoleHighlights(
+  userId: string,
+  p: ProfileSource,
+  meter?: CostMeter
+): Promise<RoleHighlights> {
   const current = p.role_highlights || {};
   if (!highlightsAreStale(p)) return current;
+
+  const key = `${userId}:${fingerprint(p)}`;
+  const last = attempted.get(key);
+  if (last && Date.now() - last < ATTEMPT_TTL_MS) return current;
+  attempted.set(key, Date.now());
+  if (attempted.size > 200) attempted.delete(attempted.keys().next().value as string);
+
   try {
-    const fresh = await generateRoleHighlights(p);
-    await getServiceClient().from('profiles').update({ role_highlights: fresh }).eq('user_id', userId);
+    const fresh = await generateRoleHighlights(p, meter);
+    const { error } = await getServiceClient()
+      .from('profiles')
+      .update({ role_highlights: fresh })
+      .eq('user_id', userId);
+    // Worth shouting about: while this keeps failing the refresh is paid for
+    // again every hour and nothing on screen explains the higher bill.
+    if (error) console.error('Role highlights save FAILED, will regenerate later:', error.message);
     return fresh;
   } catch (err) {
     console.error('Role highlights refresh failed:', err);

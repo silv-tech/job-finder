@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     // Always write from the full stored profile, overlaid with anything fresh
     // the extension sent.
-    const profile = await loadWriterProfile(auth.userId, body.profile || {});
+    const profile = await loadWriterProfile(auth.userId, body.profile || {}, meter);
 
     // Fallback when no AI is configured: a plain template.
     if (!client) {
@@ -104,6 +104,9 @@ ${profile.phone || ''}`.trim());
         cover_letter: coverLetter,
         fields,
         hidden_instructions_found: null,
+        // Normally zero on this path, but the profile load above can refresh the
+        // role highlights with a paid call, so report whatever was actually spent.
+        cost: costOf(meter),
         ...roleInfo,
         ...manualInfo,
       });

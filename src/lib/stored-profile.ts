@@ -1,5 +1,6 @@
 import { getServiceClient } from '@/lib/supabase';
 import { ensureRoleHighlights } from '@/lib/role-highlights';
+import type { CostMeter } from '@/lib/cost-meter';
 import type { WriterProfile } from '@/lib/application-writer';
 
 // The authoritative profile for writing applications: the stored Supabase
@@ -8,7 +9,10 @@ import type { WriterProfile } from '@/lib/application-writer';
 // refreshed first if the resume or portfolio changed.
 export async function loadWriterProfile(
   userId: string,
-  bodyProfile: Record<string, unknown> = {}
+  bodyProfile: Record<string, unknown> = {},
+  // The role-highlights refresh below is a paid Anthropic call that happens
+  // inside a generate request, so the caller's meter is passed down to it.
+  meter?: CostMeter
 ): Promise<WriterProfile> {
   let stored: Record<string, unknown> = {};
   try {
@@ -26,7 +30,7 @@ export async function loadWriterProfile(
   }
 
   if (stored.user_id) {
-    merged.role_highlights = await ensureRoleHighlights(userId, merged as WriterProfile);
+    merged.role_highlights = await ensureRoleHighlights(userId, merged as WriterProfile, meter);
   }
   return merged as WriterProfile;
 }

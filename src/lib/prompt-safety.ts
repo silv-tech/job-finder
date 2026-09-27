@@ -15,6 +15,14 @@ export function wrapJobPost(text: string): string {
 // checker but not the writer.
 export const POST_LIMIT = 14000;
 
+// The fact-check pass runs on Opus at 2.5x Sonnet's input rate, and its copy of
+// the post sits OUTSIDE its cached prefix, so it is paid for in full on every
+// application. Measured real posts on this board run 1,500-5,500 characters, so
+// this bound almost never bites; it exists so one freak 30,000-character post
+// cannot quietly cost ten times what an application should. Both ends are kept,
+// as always, because the application instructions are at the end.
+export const FACT_CHECK_POST_LIMIT = 8000;
+
 // Trim a long post WITHOUT dropping the end of it. Application instructions
 // ("How to Apply", "Screening Checklist", "To be considered") are almost always
 // the last section, so a plain slice(0, n) throws away the one part that decides
