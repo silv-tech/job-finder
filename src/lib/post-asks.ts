@@ -201,6 +201,13 @@ const SYNONYMS: [RegExp, RegExp][] = [
   [/\b(availability|available|hours|schedule|start)\b/, /\b(available|availability|hours|full[- ]time|part[- ]time|time ?zone|overlap|start|schedule)\b/i],
   [/\b(portfolio|samples?|work|examples?)\b/, /\b(portfolio|dlvasolutions|sample|example|github|resume)\b/i],
   [/\b(location|based|country|timezone)\b/, /\b(based|philippines|davao|time ?zone|gmt|utc)\b/i],
+  // Key handling is answered by naming WHERE the key lives, which shares almost
+  // no words with the question. "Your typical workflow for keeping third-party
+  // API keys secure" against "I keep them server side and never let the browser
+  // see them" scored 2 of 13 words and was wrongly reported as unanswered, which
+  // bought a repair call and told the model to answer something it already had.
+  [/\b(api keys?|credentials?|secrets?|tokens?)\b/,
+   /\b(server[- ]?side|environment variable|env var|\.env|wp-config|wp_remote|backend|never (?:expose|exposed|in the browser)|not exposed|vault|secret manager|rest (?:route|endpoint)|proxy|sanitiz)\b/i],
 ];
 
 export function unansweredAsks(asks: string[], reply: string): string[] {

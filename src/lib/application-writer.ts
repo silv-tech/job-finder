@@ -614,8 +614,9 @@ function withSignOff(message: string, name?: string, hiddenInstruction?: string 
 // because only the repair pass moments later ever reuses it. The API requires
 // longer-TTL blocks to come BEFORE shorter ones, which is the order used below.
 // Published list prices, US dollars per million tokens. A cache read bills at
-// 0.1x the input rate and a cache write at 1.25x. Kept here rather than in
-// ai-config so the price and the model name that uses it stay side by side.
+// 0.1x the input rate whatever its TTL; a cache WRITE is 1.25x for the 5-minute
+// entry but 2x for the 1-hour one. Kept here rather than in ai-config so the
+// price and the model name that uses it stay side by side.
 const PRICES: Record<string, { in: number; out: number }> = {
   'claude-sonnet-5': { in: 2, out: 10 },
   'claude-opus-5': { in: 5, out: 25 },
@@ -662,6 +663,15 @@ function meterCall(meter: CostMeter | undefined, model: string, u: Anthropic.Usa
   const read = n(u.cache_read_input_tokens);
   const write = n(u.cache_creation_input_tokens);
   const out = n(u.output_tokens);
+  // The two TTLs bill differently, and this pipeline uses both, so price them
+  // apart when the API breaks them down. Treating every write as 1.25x
+  // understated the bill, which is the one number he budgets on. When the
+  // breakdown is absent, fall back to assuming the more expensive kind rather
+  // than quoting a total that is too low.
+  const write1h = n(u.cache_creation?.ephemeral_1h_input_tokens);
+  const write5m = n(u.cache_creation?.ephemeral_5m_input_tokens);
+  const splitKnown = write1h + write5m > 0;
+  const writeCost = splitKnown ? write5m * 1.25 + write1h * 2 : write * 2;
   meter.calls += 1;
   meter.in += fresh;
   meter.cacheRead += read;
@@ -671,7 +681,7 @@ function meterCall(meter: CostMeter | undefined, model: string, u: Anthropic.Usa
   // here is worse than a missing one, because it is the number he budgets on.
   if (price) {
     meter.usd +=
-      (fresh * price.in + read * price.in * 0.1 + write * price.in * 1.25 + out * price.out) / 1e6;
+      (fresh * price.in + read * price.in * 0.1 + writeCost * price.in + out * price.out) / 1e6;
   }
 }
 
@@ -911,16 +921,24 @@ export async function writeApplication(
   if (subjectFaults.length) {
     faults.push(`The subject "${draft.subject}" is weak: ${subjectFaults.join(', and ')}. Write one about what THEY need: specific, four words or more, no applicant name, not a repeat of the job title.`);
   }
-  if (missingPhrase.length) {
-    faults.push(`The post demands an exact screening phrase and the message does not satisfy it: ${missingPhrase
-      .map((r) => `"${r.phrase}" (${r.where === 'letter-start' ? 'must be the very first thing in the cover letter, on its own line above the greeting' : r.where === 'subject' ? 'must be in the subject line' : 'must appear in the message'})`)
-      .join('; ')}. Posts that ask for one normally say outright that applications without it are never read, so this alone loses the job. Reproduce it character for character and do not comment on it.`);
-  }
   if (employers.length) {
     faults.push(`It names a past employer or client: ${employers.join(', ')}. Use "in a previous role", "at an agency I worked with" or "for a client" instead, keeping every fact and number exactly as it is. The applicant's OWN products and portfolio projects may stay named.`);
   }
 
-  if (faults.length) {
+  // The screening phrase is added LAST and deliberately does not count towards
+  // whether a repair runs. applyPhrases fixes it in code afterwards, for free and
+  // exactly: the literal string on its own line above the greeting is precisely
+  // what the employer asked for, so there is nothing for a model to improve. It
+  // still joins the list when a repair is happening anyway, because then the model
+  // can place it and adjust the greeting around it at no extra cost.
+  const faultsWorthACall = faults.length;
+  if (missingPhrase.length) {
+    faults.push(`The post demands an exact screening phrase and the message does not satisfy it: ${missingPhrase
+      .map((r) => `"${r.phrase}" (${r.where === 'letter-start' ? 'must be the very first thing in the cover letter, on its own line above the greeting' : r.where === 'subject' ? 'must be in the subject line' : 'must appear in the message'})`)
+      .join('; ')}. Posts that ask for one normally say outright that applications without it are never read. Reproduce it character for character and do not comment on it.`);
+  }
+
+  if (faultsWorthACall) {
     say(`Fixing ${faults.length} issue${faults.length === 1 ? '' : 's'}`);
     const fixSuffix = `=== FIX THESE BEFORE THIS IS SENT ===
 Here is your draft:
