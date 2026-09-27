@@ -42,21 +42,82 @@ export function parseJsonResponse<T = Record<string, unknown>>(text: string): T 
   if (t.startsWith('```')) {
     t = t.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
   }
-  try {
-    return JSON.parse(t) as T;
-  } catch {
-    // Fall back to the first {...} span in case the model added prose around it.
-    const start = t.indexOf('{');
-    const end = t.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(t.slice(start, end + 1)) as T;
-      } catch {
-        return null;
-      }
+  // Only an OBJECT counts. The signature says Record<string, unknown> and every
+  // caller reads named fields off it, so a bare array or number is a failed
+  // reply, not a parsed one; returning it only pushed the failure one step
+  // downstream into a confusing "could not parse the application".
+  const asObject = (raw: string): T | null => {
+    try {
+      const v: unknown = JSON.parse(raw);
+      return v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : null;
+    } catch {
+      return null;
     }
-    return null;
+  };
+
+  // In order: the text as sent, then the first {...} span in case the model
+  // wrapped it in prose, then that span with its control characters repaired.
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  const span = start !== -1 && end > start ? t.slice(start, end + 1) : null;
+
+  return (
+    asObject(t) ||
+    (span ? asObject(span) || asObject(repairJson(span)) : null)
+  );
+}
+
+// Repair the JSON defects a model actually produces, rather than paying for a
+// whole second generation to roll the dice again. Measured in production: about
+// one draft in three came back as JSON that looked complete - correct keys, right
+// shape, `stop_reason: end_turn` - and still would not parse, at roughly five
+// cents of wasted call each time.
+//
+// Only two classes are repaired, both unambiguous:
+//   1. A raw newline or tab INSIDE a string value. JSON forbids literal control
+//      characters in strings and a cover letter is full of line breaks, so this
+//      is far and away the commonest failure.
+//   2. A trailing comma before a closing brace or bracket.
+// Anything else is left to fail: guessing at genuinely broken structure risks
+// silently returning the wrong letter, which is worse than retrying.
+export function repairJson(text: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+
+    if (inString) {
+      // Escape the control characters that make an otherwise good reply unparseable.
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') { out += '\\r'; continue; }
+      if (ch === '\t') { out += '\\t'; continue; }
+      out += ch;
+      continue;
+    }
+
+    out += ch;
   }
+
+  // A trailing comma before } or ], outside of any string.
+  return out.replace(/,(\s*[}\]])/g, '$1');
 }
 
 // The residual "this was written by AI" tells that survive a good prompt.
@@ -71,7 +132,16 @@ export function stripAiTells(text: string): string {
     .replace(/…/g, '...'); // ellipsis char -> three dots
 }
 
-// How hard the fact-check pass thinks. It is the most expensive call in the
-// pipeline by a wide margin, so this is the single biggest cost knob in the app;
-// it lives here so changing it is one edit and shows up in one diff.
-export const FACT_CHECK_EFFORT: 'medium' | 'high' = 'high';
+// How hard the fact-check pass thinks. Thinking bills as OUTPUT, and output is
+// about two thirds of what an application now costs.
+//
+// Measured after the move to Sonnet: this call produced ~4,500 output tokens at
+// effort high, against ~2,280 when it ran on Opus. It got cheaper per token and
+// louder per call, and the extra volume ate most of the saving. Medium brings it
+// back in line with what the pass actually has to do: it is handed every fact it
+// needs and asked which sentences those facts do not support.
+//
+// Held back one round on purpose so the model change could be judged alone. The
+// logs now print [fact-check] found=N on every application, so what this costs
+// in catches is measurable rather than a matter of opinion.
+export const FACT_CHECK_EFFORT: 'medium' | 'high' = 'medium';
