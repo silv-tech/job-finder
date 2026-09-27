@@ -706,10 +706,20 @@ async function callModel(
     fields?: Record<string, unknown>;
     hidden_instructions_found?: string | null;
   }>(extractText(message) || '');
-  if (!parsed) {
-    throw new WriterError('Could not parse the application. Please try again.');
-  }
-  if (requireLetter && (typeof parsed.cover_letter !== 'string' || !parsed.cover_letter.trim())) {
+  if (!parsed || (requireLetter && (typeof parsed.cover_letter !== 'string' || !parsed.cover_letter.trim()))) {
+    // Log enough to diagnose without dumping the whole reply: which model, why it
+    // stopped, whether any text came back at all, and the first 300 characters.
+    // The first time this happened in production the message said only "please
+    // try again", which cost a generation and told us nothing about the cause.
+    const text = extractText(message);
+    console.error('[writer] unparseable reply', {
+      model,
+      stop_reason: message.stop_reason,
+      hadTextBlock: text !== null,
+      textLength: text ? text.length : 0,
+      parsed: !!parsed,
+      head: (text || '').slice(0, 300),
+    });
     throw new WriterError('Could not parse the application. Please try again.');
   }
   const str = (v: unknown) =>
@@ -848,7 +858,24 @@ export async function writeApplication(
   const { stable, perJob } = buildPrompt(job, profile, opts);
   say('Writing the first draft');
   const meter = opts.meter || newCostMeter();
-  let draft = await callModel(client, '', { cacheBlocks: [{ text: stable, ttl: '1h' }, { text: perJob }], meter });
+  // One retry. A malformed reply happens, and without this it loses the whole
+  // application: the user sees "could not parse" and the generation is paid for
+  // either way. Retrying costs about the same as the call that just failed and
+  // saves the far more expensive outcome of no application at all.
+  let draft: Awaited<ReturnType<typeof callModel>> | null = null;
+  for (let attempt = 1; attempt <= 2 && !draft; attempt++) {
+    try {
+      draft = await callModel(client, '', {
+        cacheBlocks: [{ text: stable, ttl: '1h' }, { text: perJob }],
+        meter,
+      });
+    } catch (err) {
+      const last = attempt === 2;
+      console.error(`Draft attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
+      if (last) throw err;
+    }
+  }
+  if (!draft) throw new WriterError('Could not write the application. Please try again.');
 
   // Every check runs FIRST, then a single repair call fixes everything it
   // found. This used to be five separate passes, each re-sending the whole
