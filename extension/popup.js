@@ -243,23 +243,51 @@ document.addEventListener('DOMContentLoaded', async () => {
       const usd = Number(cost && cost.usd);
       const gens = Number(cost && cost.generations);
       const apps = Number(cost && cost.applications);
+      const unp = Number(cost && cost.unpricedGenerations);
       const spent = Number.isFinite(usd) && usd > 0 ? usd : 0;
       const written = Number.isFinite(gens) && gens > 0 ? Math.round(gens) : 0;
       const sent = Number.isFinite(apps) && apps > 0 ? Math.round(apps) : 0;
+      const unpriced = Number.isFinite(unp) && unp > 0 ? Math.round(unp) : 0;
       const avg = written > 0 ? spent / written : 0;
+      const money = (n) => '$' + n.toFixed(2);
       // Nothing is gained by reading "3 written, 3 sent".
       const counted = written === sent
         ? `${written} message${written === 1 ? '' : 's'} written and sent`
         : `${written} message${written === 1 ? '' : 's'} written, ${sent} sent`;
+      // Some generations come back with no figure attached: a stream cut off
+      // before its result line, or a server too old to report one. That money was
+      // still spent, so the total is a FLOOR, and the place to say so is the
+      // number he budgets from - hence "at least". The clause after it says why,
+      // because "2 unpriced" on its own will mean nothing in six weeks. Both
+      // disappear entirely when there is nothing to qualify.
+      const floor = unpriced > 0;
+      const amount = (floor ? 'at least ' : '') + money(spent);
+      const caveat = floor
+        ? `\u00b7 ${unpriced} message${unpriced === 1 ? '' : 's'} came back without a price`
+        : '';
+      const join = (head) => (caveat ? head + ' ' + caveat : head);
+      // No messages written but money or sends on the day is a real state, not a
+      // glitch: a send landing just after PHT midnight belongs to today while the
+      // message it sent was paid for yesterday. Printing the flat "$0.00, no
+      // messages written yet" there hid real money AND swallowed the sent count,
+      // and the warning still compared the real total - so it rendered "$0.00"
+      // in red. Say both numbers, and no average, since there is nothing to
+      // divide by.
+      if (written === 0) {
+        return {
+          spent,
+          avg,
+          text: spent === 0 && sent === 0 && !floor
+            ? 'API cost today: $0.00, no messages written yet.'
+            : join(`API cost today: ${amount} (0 messages written, ${sent} sent)`),
+        };
+      }
       return {
         spent,
         avg,
-        text: written === 0
-          ? 'API cost today: $0.00, no messages written yet.'
-          : `API cost today: $${spent.toFixed(2)} (${counted}, avg $${avg.toFixed(3)})`,
+        text: join(`API cost today: ${amount} (${counted}, avg $${avg.toFixed(3)})`),
       };
     }
-
     function paintToday() {
       chrome.runtime.sendMessage({ action: 'getBudget' }, (b) => {
         if (!b) return;
@@ -295,10 +323,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const totalUsd = Number(cost.totalUsd);
         const totalGens = Number(cost.totalGenerations);
+        const totalUnp = Number(cost.totalUnpricedGenerations);
         const allTime = Number.isFinite(totalUsd) && totalUsd > 0 ? totalUsd : 0;
         const allGens = Number.isFinite(totalGens) && totalGens > 0 ? Math.round(totalGens) : 0;
+        const allUnp = Number.isFinite(totalUnp) && totalUnp > 0 ? Math.round(totalUnp) : 0;
+        // Same "at least" rule as the day's line: once anything has gone unpriced
+        // the running total can only ever be a lower bound.
         set('today-cost-total', allTime > 0 || allGens > 0
-          ? `All time: $${allTime.toFixed(2)} over ${allGens} message${allGens === 1 ? '' : 's'}.`
+          ? `All time: ${allUnp > 0 ? 'at least ' : ''}$${allTime.toFixed(2)} over ${allGens} message${allGens === 1 ? '' : 's'}`
+            + (allUnp > 0 ? `, ${allUnp} without a price.` : '.')
           : '');
       });
     }

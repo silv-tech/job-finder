@@ -4,6 +4,10 @@ const DEFAULT_CONFIG = {
   apiUrl: 'https://jobs.dlvasolutions.com',
   autoApply: false,
   scanInterval: 10,
+  // ON by default, and the code that reads it says so too
+  // (`reviewBeforeSend !== false`). It was only ever missing from here, which
+  // made the default send path look like the exceptional one.
+  reviewBeforeSend: true,
   // The four kinds of job worth applying to, searched one per cycle.
   lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
   // A job post is a drop: the value is in being early. Anything older than this
@@ -46,7 +50,27 @@ function phtDayKey(when) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
-async function getBudget() {
+// Both ledgers are read-modify-write over chrome.storage, and both now have
+// more than one caller that can fire at once: a review tab being sent while the
+// alarm cycle runs, two generations in flight together. Without a queue the
+// second read sees the first's pre-write state and the first write is silently
+// lost - money and counts alike, with nothing left to recover them from. Same
+// one-at-a-time chain mergeConfig already uses for the config.
+//
+// Everything below that touches a ledger comes in two halves: an apply/read
+// half that must ONLY ever run inside the queue, and a public wrapper that puts
+// it there. Never await a public wrapper from inside another one: that waits on
+// a link of the chain which cannot start until you have returned.
+let ledgerWrite = Promise.resolve();
+function queueLedger(work) {
+  // Runs regardless of how the previous link settled. One rejection must not
+  // stall every later write for the life of the service worker.
+  const done = ledgerWrite.then(() => work(), () => work());
+  ledgerWrite = done.then(() => {}, () => {});
+  return done;
+}
+
+async function readBudget() {
   const stored = (await chrome.storage.local.get('budget')).budget;
   const today = phtDayKey();
   if (!stored || stored.day !== today) {
@@ -59,12 +83,19 @@ async function getBudget() {
   return stored;
 }
 
+function getBudget() {
+  return queueLedger(readBudget);
+}
+
 // The apply page shows the real balance. That reading beats any estimate.
-async function recordApBalance(balance) {
-  if (typeof balance !== 'number' || !isFinite(balance) || balance < 0) return;
-  const b = await getBudget();
-  b.apBalance = balance;
-  await chrome.storage.local.set({ budget: b });
+function recordApBalance(balance) {
+  if (typeof balance !== 'number' || !isFinite(balance) || balance < 0) return Promise.resolve(null);
+  return queueLedger(async () => {
+    const b = await readBudget();
+    b.apBalance = balance;
+    await chrome.storage.local.set({ budget: b });
+    return b;
+  });
 }
 
 // Can we afford to send one more application worth `ap` points right now?
@@ -85,12 +116,33 @@ async function budgetAllows(ap, opts) {
   return { ok: true };
 }
 
-async function recordSpend(ap) {
-  const b = await getBudget();
+// How many Apply Points an application really spends. The content script's
+// pointsToSpend() clamps to 1-2 and DEFAULTS TO 2, so booking `apply_points||1`
+// under-counted every job the API did not price: the form was filled with 2 and
+// the ledger recorded 1, which is one of the ways budgetAllows could wave
+// through applications there were no points left for. `reported` is the number
+// the page actually filled in, and it wins whenever we have it.
+function apSpentFor(job, reported) {
+  // What the page actually filled in wins whenever it is a usable number.
+  const fromPage = parseInt(reported, 10);
+  if (Number.isFinite(fromPage) && fromPage > 0) return Math.min(2, fromPage);
+  // Otherwise mirror pointsToSpend() EXACTLY, `|| 2` included. That `||` is
+  // load-bearing: a falsy 0 there means "the API did not price this job", so the
+  // form fills 2. Reading 0 as a real zero and booking 1 is the same under-count
+  // this function exists to end.
+  return Math.max(1, Math.min(2, parseInt(job && job.apply_points, 10) || 2));
+}
+async function applySpend(ap) {
+  const b = await readBudget();
   b.applied += 1;
   b.apSpent += ap;
   if (b.apBalance != null) b.apBalance = Math.max(0, b.apBalance - ap);
   await chrome.storage.local.set({ budget: b });
+  return b;
+}
+
+function recordSpend(ap) {
+  return queueLedger(() => applySpend(ap));
 }
 
 // --- API cost ledger --------------------------------------------------------
@@ -125,6 +177,19 @@ function readCost(cost) {
   };
 }
 
+// Did a price actually arrive? Money spent with no figure attached is not the
+// same thing as money not spent, and the two must never end up in one number:
+// the first makes every total a floor, the second is just a quiet day. A cost
+// object carrying a usable `usd` is priced even when that usd is 0 - a fully
+// cached generation genuinely costs nothing, and that is a measurement, not a
+// gap. Anything else (no cost field at all, or a usd that will not read as a
+// number) means the spend is unknown and the day's total is an understatement.
+function hasPrice(cost) {
+  if (!cost || typeof cost !== 'object') return false;
+  const n = typeof cost.usd === 'string' ? Number(cost.usd) : cost.usd;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0;
+}
+
 function addCost(a, b) {
   return {
     usd: costNum(a && a.usd) + costNum(b && b.usd),
@@ -136,7 +201,7 @@ function addCost(a, b) {
   };
 }
 
-async function getCostLedger() {
+async function readCostLedger() {
   const stored = (await chrome.storage.local.get('costLedger')).costLedger;
   const today = phtDayKey();
   if (!stored || stored.day !== today) {
@@ -147,8 +212,10 @@ async function getCostLedger() {
       generations: 0,
       applications: 0,
       ...EMPTY_COST,
+      unpricedGenerations: 0,
       totalUsd: costNum(stored && stored.totalUsd),
       totalGenerations: costNum(stored && stored.totalGenerations),
+      totalUnpricedGenerations: costNum(stored && stored.totalUnpricedGenerations),
       totalApplications: costNum(stored && stored.totalApplications),
     };
     await chrome.storage.local.set({ costLedger: fresh });
@@ -157,29 +224,44 @@ async function getCostLedger() {
   return stored;
 }
 
-// Money is recorded the moment it is SPENT, not when an application is sent.
-// Review-before-send is the default, so a message can be generated, paid for,
-// and never sent: recording at the send would have shown $0 while the credits
-// drained, which is the exact surprise this ledger exists to prevent. A
-// regenerate ("Make it better") is another paid generation and counts as one.
-async function recordGeneration(cost) {
+function getCostLedger() {
+  return queueLedger(readCostLedger);
+}
+
+async function applyGeneration(cost) {
   const c = readCost(cost);
-  const l = await getCostLedger();
+  // A generation the server never priced still happened and was still paid for.
+  // It cannot be priced here without inventing a figure, so it is COUNTED here
+  // instead: the popup then says the total is a floor rather than reporting an
+  // understatement as if it were the number. Kept as its own field so a measured
+  // total is never mixed with a guess - that is what would make this ledger
+  // impossible to check against the server's own [spend] log.
+  const unpriced = hasPrice(cost) ? 0 : 1;
+  const l = await readCostLedger();
   const next = {
     ...l,
     ...addCost(l, c),
     generations: costNum(l.generations) + 1,
+    unpricedGenerations: costNum(l.unpricedGenerations) + unpriced,
     totalUsd: costNum(l.totalUsd) + c.usd,
     totalGenerations: costNum(l.totalGenerations) + 1,
+    totalUnpricedGenerations: costNum(l.totalUnpricedGenerations) + unpriced,
   };
   await chrome.storage.local.set({ costLedger: next });
   return next;
 }
 
-// A send. The money was already counted when the message was written, so this
-// only counts the application.
-async function recordSentApplication() {
-  const l = await getCostLedger();
+// Money is recorded the moment it is SPENT, not when an application is sent.
+// Review-before-send is the default, so a message can be generated, paid for,
+// and never sent: recording at the send would have shown $0 while the credits
+// drained, which is the exact surprise this ledger exists to prevent. A
+// regenerate ("Make it better") is another paid generation and counts as one.
+function recordGeneration(cost) {
+  return queueLedger(() => applyGeneration(cost));
+}
+
+async function applySentApplication() {
+  const l = await readCostLedger();
   const next = {
     ...l,
     applications: costNum(l.applications) + 1,
@@ -187,6 +269,44 @@ async function recordSentApplication() {
   };
   await chrome.storage.local.set({ costLedger: next });
   return next;
+}
+
+// A send. The money was already counted when the message was written, so this
+// only counts the application.
+function recordSentApplication() {
+  return queueLedger(applySentApplication);
+}
+
+// Every successful send converges here, and it must be safe to call twice for
+// the same application. There are two send paths and the one that was never
+// booking anything is the DEFAULT one:
+//   - auto-send: applyToJobs clicks Send itself and calls this directly;
+//   - review (the default, since reviewBeforeSend defaults to true): the content
+//     script clicks Send and messages 'logApply', which lands here too.
+// Until this existed only the first path booked anything, so by default the
+// popup read "0 sent" forever while the Applied tile above it climbed, and - far
+// worse - not a single Apply Point was recorded, so budgetAllows would authorise
+// ten more applications after the day's ten were already gone.
+//
+// Booked once per apply_url: an application is sent once, and both paths can
+// fire for the same job. A job with no apply_url cannot be de-duplicated and is
+// booked every time, which is the right way round - losing a real spend is worse
+// than counting a freak one twice.
+const BOOKED_SENDS_CAP = 500;
+
+function bookSentApplication(job, reportedAp) {
+  return queueLedger(async () => {
+    const url = job && job.apply_url;
+    const { bookedSends = [] } = await chrome.storage.local.get('bookedSends');
+    if (url && bookedSends.includes(url)) return { booked: false, ap: 0 };
+    const ap = apSpentFor(job, reportedAp);
+    await applySpend(ap);
+    await applySentApplication();
+    if (url) {
+      await chrome.storage.local.set({ bookedSends: [...bookedSends, url].slice(-BOOKED_SENDS_CAP) });
+    }
+    return { booked: true, ap };
+  });
 }
 
 // One lane per cycle. The first lane is checked every other cycle because it is
@@ -612,17 +732,29 @@ async function handleAutoApplyCycle(tabId, lane, opts) {
 // Guards against the alarm cycle and "Apply to All" running at the same time
 let applyRunning = false;
 
-async function markApplied(url) {
-  const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
-  if (!appliedUrls.includes(url)) {
-    appliedUrls.push(url);
-    await chrome.storage.local.set({ appliedUrls });
-  }
+// The local re-apply guard. Every reader of appliedUrls (applyToJobs,
+// prepareForReview, the scoring cycle) skips what is in here, so a lost write
+// means a second application to the same post: 1-2 Apply Points spent for
+// nothing, and a second message in an inbox that already has one, which reads
+// worse than not applying at all. Queued for the same reason the ledgers are -
+// several review tabs can report their sends at once.
+function markApplied(url) {
+  if (!url) return Promise.resolve();
+  return queueLedger(async () => {
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    if (!appliedUrls.includes(url)) {
+      appliedUrls.push(url);
+      await chrome.storage.local.set({ appliedUrls });
+    }
+  });
 }
 
-async function unmarkApplied(url) {
-  const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
-  await chrome.storage.local.set({ appliedUrls: appliedUrls.filter(u => u !== url) });
+function unmarkApplied(url) {
+  if (!url) return Promise.resolve();
+  return queueLedger(async () => {
+    const { appliedUrls = [] } = await chrome.storage.local.get('appliedUrls');
+    await chrome.storage.local.set({ appliedUrls: appliedUrls.filter(u => u !== url) });
+  });
 }
 
 // Apply to each job in a hidden tab (fill + send). Each URL is persisted as
@@ -703,6 +835,11 @@ async function prepareForReview(jobs) {
         if (result?.pending_review) {
           ready++;
           firstTab ??= tab;
+          // The page states the real balance and nothing has been sent yet, so
+          // this reading is current and goes in as-is - no subtraction. The send
+          // that follows decrements it through bookSentApplication. Without this
+          // the Today card said "not read yet" indefinitely on the default path.
+          if (result.ap_balance != null) await recordApBalance(result.ap_balance);
         } else if (!result?.manual_required) {
           // Sent (review was switched off meanwhile) or failed: don't leave it open
           setTimeout(() => chrome.tabs.remove(tab.id).catch(() => {}), result?.sent ? 5000 : 0);
@@ -847,11 +984,11 @@ The message is drafted and waiting in the popup.`,
           });
         } else if (fillResult?.success) {
           appliedCount++;
-          // Points are spent the moment it sends, so the ledger moves here.
-          await recordSpend(job.apply_points || 1);
-          // Only the count. The money for this message was already booked when
-          // it was written, whether or not it reached this line.
-          await recordSentApplication();
+          // Points and the sent count, booked once per application. The money for
+          // the message was already booked when it was written, whether or not
+          // it ever reached this line. `ap_spent` is what the page was actually
+          // filled with, which beats anything inferred from the job.
+          await bookSentApplication(job, fillResult.ap_spent);
           // The apply page knows the true balance; trust it over our running total.
           // readApBalance() runs before the send button is clicked, so the page
           // shows the balance BEFORE this application. Subtract what we just
@@ -1022,9 +1159,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         cost: {
           ...addCost(cost, EMPTY_COST),
           generations: costNum(cost.generations),
+          unpricedGenerations: costNum(cost.unpricedGenerations),
           applications: costNum(cost.applications),
           totalUsd: costNum(cost.totalUsd),
           totalGenerations: costNum(cost.totalGenerations),
+          totalUnpricedGenerations: costNum(cost.totalUnpricedGenerations),
           totalApplications: costNum(cost.totalApplications),
         },
         applied: b.applied,
@@ -1040,12 +1179,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'getStats') {
-    chrome.storage.local.get('stats').then(({ stats }) => sendResponse(stats || { scanned: 0, matched: 0, applied: 0, today: new Date().toDateString() }));
+    chrome.storage.local.get('stats').then(({ stats }) => sendResponse(stats || { scanned: 0, matched: 0, applied: 0, today: phtDayKey() }));
     return true;
   }
 
   if (message.action === 'logApply') {
-    logApplication(message.job).then(sendResponse);
+    // The review path clicks Send in the page and reports it here, and this is
+    // the only place it tells us. Booking the points and the sent count here is
+    // what stops the default path recording nothing at all; bookSentApplication
+    // is idempotent per apply_url, so a job that also went through applyToJobs
+    // is still counted exactly once.
+    (async () => {
+      // Mark it applied here too, not only book it. applyToJobs has always marked
+      // (before it clicks Send), but the review path never did, so nothing stopped
+      // a second application to the same post - an oversight, not a decision. He
+      // holds around 60 Apply Points and earns 10 a day, so a duplicate is a real
+      // loss twice over: the points, and a second message to an employer who
+      // already has one.
+      await markApplied(message.job && message.job.apply_url);
+      await bookSentApplication(message.job, message.ap_spent);
+      sendResponse(await logApplication(message.job));
+    })();
     return true;
   }
 
@@ -1171,6 +1325,18 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
   const { config } = await chrome.storage.local.get('config');
   const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
 
+  // Hoisted out of the try so the catch below can still book a stream that died
+  // after the server had already paid for the model calls. `booked` makes the
+  // booking once-only: every exit from here goes through book(), and a throw on
+  // the way out must not charge the same generation a second time.
+  let streamCost = null;
+  let booked = false;
+  const book = async (cost) => {
+    if (booked) return;
+    booked = true;
+    await recordGeneration(cost);
+  };
+
   try {
     const res = await apiFetch(`${apiUrl}/api/extension/generate-application`, {
       method: 'POST',
@@ -1193,6 +1359,16 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
 
     if (!res.ok) {
       const data = await res.json().catch(() => null);
+      // A 500 out of the writing step is not free: the guard that rejects a bad
+      // draft throws after the model has already been paid for three or four
+      // calls, and the server reports that on the error body. Book it, or the
+      // money is gone with nothing on screen to account for it.
+      //
+      // Only when a cost actually arrived. No cost field means nothing is known
+      // to have been spent (a 400, a rejected request), and booking a zero-cost
+      // generation there would pad the message count and flatten the average
+      // with a call that never reached the model.
+      if (data && data.cost) await book(data.cost);
       return { error: data?.error || `API error: ${res.status}` };
     }
     // NDJSON: progress lines first, then one final line carrying the result.
@@ -1214,6 +1390,11 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
               const msg = JSON.parse(raw);
               if (msg.type === 'progress') onProgress(msg.phase);
               else if (msg.type === 'result') result = msg.result;
+              // Any line may carry what has been spent so far, including the
+              // server's error line. Kept as the LAST one seen rather than a
+              // running sum, because each line reports the generation's total
+              // and adding them would multiply the bill.
+              if (msg && msg.cost) streamCost = msg.cost;
             } catch { /* a partial or malformed line is not worth failing over */ }
           }
           cut = buffer.indexOf(NEWLINE);
@@ -1225,20 +1406,34 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
         consume(decoder.decode(value, { stream: true }));
       }
       consume(decoder.decode());
-      if (buffer.trim()) consume(buffer + NEWLINE);
+      // A stream can end without its trailing newline, leaving one whole line
+      // sitting in the buffer. This used to be `consume(buffer + NEWLINE)`,
+      // which appended the buffer to ITSELF and produced `{...}{...}` - which
+      // fails JSON.parse, is swallowed by the catch above, and loses a result
+      // the API had already been paid in full for, reporting $0.00 and "No
+      // application came back". consume() only ever needed the newline it is
+      // waiting for.
+      if (buffer.trim()) consume(NEWLINE);
       // Unconditional: if the stream died before its result line, the model
       // calls behind it were still billed. The server reports cost on its error
       // line too, so a failed generate books what it actually spent rather than
       // hiding it. A truncated stream with no line at all books zero, which is
       // the one gap left and is better than pretending the call was free.
-      await recordGeneration(result && result.cost);
+      await book((result && result.cost) || streamCost);
       return result || { error: 'No application came back' };
     }
 
     const data = await res.json();
-    await recordGeneration(data.cost);
+    await book(data.cost);
     return data;
   } catch (err) {
+    // The stream can fail mid-read after the server has been paid in full. Book
+    // whatever a line already told us; `book` is once-only, so a throw AFTER the
+    // normal booking cannot pay for the same generation twice. Nothing is booked
+    // when no line ever arrived: a connection that failed before the server
+    // answered cost nothing, and a phantom generation would only flatten the
+    // average and pad the message count.
+    if (streamCost) await book(streamCost);
     return { error: err.message };
   }
 }
@@ -1274,7 +1469,12 @@ async function handleSaveJob(job) {
 
 async function updateStats(add) {
   const { stats } = await chrome.storage.local.get('stats');
-  const today = new Date().toDateString();
+  // phtDayKey, the same boundary both ledgers use. This was the machine's own
+  // toDateString(), so the tiles rolled over at local midnight while the Spending
+  // line and the Apply Points rolled over at Philippine midnight - two numbers on
+  // one screen disagreeing for part of every day, and the machine's timezone was
+  // the thing that decided how big the gap was.
+  const today = phtDayKey();
   const current = stats?.today === today ? stats : { scanned: 0, matched: 0, applied: 0, today };
 
   current.scanned += add.scanned || 0;
