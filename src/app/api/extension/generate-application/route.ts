@@ -43,6 +43,22 @@ export async function POST(req: NextRequest) {
   // exception is money the ledger never sees.
   const meter = newCostMeter();
 
+  // An independent record of what was spent, written where the money is actually
+  // spent. The extension's ledger cannot be the book of record: MV3 evicts an idle
+  // service worker aggressively, a generate is the longest thing it does, and a
+  // paid call can vanish between the API answering and the storage write landing.
+  // Nothing recovers that from the extension side, so the spend is logged here
+  // too. Railway keeps these, which makes the popup's figure checkable rather
+  // than merely plausible.
+  const logSpend = (outcome: string) => {
+    const c = costOf(meter);
+    if (!c.calls) return;
+    console.log(
+      `[spend] user=${auth.userId} outcome=${outcome} usd=${c.usd} calls=${c.calls} ` +
+        `in=${c.in} cacheRead=${c.cacheRead} cacheWrite=${c.cacheWrite} out=${c.out}`
+    );
+  };
+
   try {
     const body = await req.json();
     const job = body.job || {};
@@ -133,11 +149,13 @@ ${profile.phone || ''}`.trim());
               onProgress: (phase) => line({ type: 'progress', phase }),
               meter,
             });
+            logSpend('ok');
             line({ type: 'result', result: { ...application, ...roleInfo, ...manualInfo } });
           } catch (err) {
             const message =
               err instanceof WriterError ? err.message : 'Failed to generate application';
             if (!(err instanceof WriterError)) console.error('Generate application error:', err);
+            logSpend('failed');
             line({ type: 'result', result: { error: message, cost: costOf(meter) } });
           }
           controller.close();
@@ -159,8 +177,10 @@ ${profile.phone || ''}`.trim());
       avoid: asDraft(body.avoid),
       meter,
     });
+    logSpend('ok');
     return NextResponse.json({ ...application, ...roleInfo, ...manualInfo });
   } catch (err) {
+    logSpend('failed');
     if (err instanceof WriterError) {
       return NextResponse.json({ error: err.message, cost: costOf(meter) }, { status: err.status });
     }
