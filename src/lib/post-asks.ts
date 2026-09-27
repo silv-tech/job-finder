@@ -599,7 +599,25 @@ const SYNONYMS: [RegExp, RegExp][] = [
   [/\b(availability|available|hours|schedule|start)\b/, /\b(available|availability|hours|full[- ]time|part[- ]time|time ?zone|overlap|start|schedule)\b/i],
   [/\b(portfolio|samples?|work|examples?)\b/, /\b(portfolio|dlvasolutions|sample|example|github|resume)\b/i],
   [/\b(location|based|country|timezone)\b/, /\b(based|philippines|davao|time ?zone|gmt|utc)\b/i],
+  // Key handling is answered by naming WHERE the key lives, which shares almost
+  // no words with the question. "Your typical workflow for keeping third-party
+  // API keys secure" against "the key stays server side behind a backend route"
+  // scored 2 words of 13 and was reported unanswered, which buys a repair call
+  // and tells the model to answer something it already answered well.
+  [/\b(api keys?|credentials?|secrets?|tokens?)\b/,
+   /\b(server[- ]?side|environment variable|env var|\.env|wp-config|wp_remote|backend route|backend|never (?:expose|exposed|in the browser)|not exposed|vault|secret manager|rest (?:route|endpoint)|proxy|sanitiz)\b/i],
 ];
+
+// "Your estimated timeline for a 3-phase build" is only answered by a DURATION.
+// Checked before the synonyms, and separately from QUANTITY_ASK, because a bare
+// number is not enough: the real reply said "moving through the three phases
+// back to back", which puts the number "three" in the same sentence as "phases"
+// and passed every looser test while telling the employer nothing about when
+// anything lands. A timeline needs a unit of time attached.
+const TIMELINE_ASK =
+  /\b(timeline|time ?frame|turnaround|how (?:long|soon)|when (?:can|could|would) you|deadline|eta|delivery date|lead time)\b/i;
+const DURATION =
+  /\b\d+\s*(?:-|to|–)?\s*\d*\s*(?:hour|day|week|month|year)s?\b|\b(?:a|one|two|three|four|five|six|eight|ten|twelve)\s+(?:hour|day|week|month|year)s?\b|\b(?:same|next)[- ]day\b|\bwithin\s+(?:a|\d+)\s+(?:hour|day|week|month)s?\b/i;
 
 // An ask that names a quantity is only answered by a quantity. "How many hours
 // per week are you looking for?" used to pass on a reply that said "I am
@@ -628,6 +646,24 @@ export function unansweredAsks(asks: string[], reply: string): string[] {
     // A quantity is demanded before anything else, because the topic words are
     // the easy half: "I am available whenever you need me" satisfies every word
     // in "How many hours per week are you looking for?" and answers none of it.
+    // A timeline is judged first and on its own terms, because the synonym rule
+    // below returns on the first topic it recognises: "weekly availability AND
+    // estimated timeline" was marked answered by the availability half alone and
+    // the timeline half was never looked at, which is how a real application went
+    // out telling the employer nothing about when the build would land.
+    if (TIMELINE_ASK.test(ask)) {
+      // Only a DURATION answers it. A bare number is not enough: the real reply
+      // said "moving through the three phases back to back", putting "three"
+      // beside "phases" and satisfying every looser test while saying nothing.
+      if (!DURATION.test(body)) return true;
+      // The duration is there. A compound ask names a second topic too ("weekly
+      // availability AND estimated timeline"), so check that half as well rather
+      // than letting either half stand for both.
+      for (const [topic, answered] of SYNONYMS) {
+        if (topic.test(ask.toLowerCase())) return !answered.test(body);
+      }
+      return false;
+    }
     if (QUANTITY_ASK.test(ask) && !numberNear(body, keyWords(ask))) return true;
     for (const [topic, answered] of SYNONYMS) {
       if (topic.test(ask.toLowerCase())) return !answered.test(body);
