@@ -31,20 +31,51 @@ const SHOUTED = /(?:phrase|words?|code|text|line)\s*(?:is|of|:|-)?\s*([A-Z][A-Z0
 
 // Cues strong enough to act on. A weak cue ("we use Slack") must never reach
 // here: prepending a wrong phrase to a cover letter is worse than missing one.
+// Words are allowed between the verb and the preposition: a real post writes
+// "start your application or cover letter with", which a tight pattern misses.
+// Safe to be loose here, because a requirement still needs an actual literal AND
+// a naming cue before it counts.
 const START_CUE =
-  /\b(?:start|begin|open|lead off|head)\w*\s+(?:your|the|it|off\s+(?:your|the))?\s*(?:cover\s*letter|letter|message|application|reply|response|email|proposal|note|first\s+line|intro\w*)?\s*(?:with|using)\b/i;
+  /\b(?:start|begin|open|lead off|head)\w*\s+(?:[\w'-]+[\s,]+){0,8}?(?:with|using)\b/i;
 const SUBJECT_CUE = /\bsubject\s*(?:line|field|header)?\b/i;
 const EXACT_CUE = /\b(?:exact(?:ly)?|verbatim|word[- ]for[- ]word|copy(?:\s+and\s+paste|\/paste)?|precise(?:ly)?)\b/i;
 const INCLUDE_CUE =
   /\b(?:includ\w+|add|insert|use|type|writ\w+|mention|put|place|append|reply\s+with|respond\s+with|answer\s+with|state)\b/i;
 // Naming the thing as a literal is itself a strong signal.
 const LITERAL_CUE =
-  /\b(?:phrase|keyword|pass(?:word|phrase|code)|code\s*word|magic\s+word|(?:the|this|following|exact)\s+words?)\b/i;
+  /\b(?:phrase|keyword|pass(?:word|phrase|code)|code\s*word|magic\s+word|(?:the|this|following|exact)\s+(?:\w+\s+)?words?)\b/i;
 
 // Phrases that are obviously not a screening token, so a stray quotation in the
 // post body cannot become a forced opening line.
 const NOT_A_PHRASE =
   /^(?:https?:|www\.|n\/a|etc|e\.g|i\.e|and|or|the|a|an|yes|no|tbd|\d+)$/i;
+
+// Posts very often put the literal on its OWN LINE under the instruction:
+//
+//   start your application or cover letter with the secret word:
+//
+//   NEURAL
+//
+// Joining a colon-terminated line to the next non-empty line puts the cue and the
+// literal into one sentence, so the rest of the detection works unchanged. Found
+// on a live post, where the secret word was otherwise missed completely.
+function joinColonLines(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/:\s*$/.test(lines[i])) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j < lines.length) {
+        out.push(lines[i].trimEnd() + ' ' + lines[j].trim());
+        i = j;
+        continue;
+      }
+    }
+    out.push(lines[i]);
+  }
+  return out.join('\n');
+}
 
 function sentences(text: string): string[] {
   // Split on sentence ends and on line breaks: posts are full of one-line items
@@ -70,7 +101,7 @@ export function requiredPhrases(description: string): PhraseRequirement[] {
   const out: PhraseRequirement[] = [];
   const seen = new Set<string>();
 
-  for (const sentence of sentences(text)) {
+  for (const sentence of sentences(joinColonLines(text))) {
     // Cheap gate first: no cue word at all means no requirement in this line.
     const hasStart = START_CUE.test(sentence);
     const hasSubject = SUBJECT_CUE.test(sentence);
