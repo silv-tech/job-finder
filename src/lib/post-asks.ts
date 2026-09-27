@@ -614,6 +614,26 @@ const SYNONYMS: [RegExp, RegExp][] = [
 // back to back", which puts the number "three" in the same sentence as "phases"
 // and passed every looser test while telling the employer nothing about when
 // anything lands. A timeline needs a unit of time attached.
+// An ask that demands actual ADDRESSES: "2-3 Live URLs or GitHub repos", "send
+// links to work you shipped". Naming the projects is not answering it, and this
+// is a stated gate on real posts ("Applications missing live project samples will
+// not be reviewed"). A real application named three of his own projects and gave
+// no address for any of them; it was caught only because the generic word
+// overlap happened to fall below half, which is luck, not a check.
+const URL_ASK =
+  /\b(?:urls?|links?|repos?|repositor(?:y|ies)|github|gitlab|live (?:sites?|examples?|samples?|projects?|work)|portfolio links?|website links?)\b/i;
+// A URL anywhere in the body. The sign-off block carries the portfolio and
+// resume on every letter, so those two cannot count as project samples: an ask
+// for live work has to be answered by something other than the boilerplate.
+const ANY_URL = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9][a-z0-9-]*\.(?:com|ph|net|org|io|dev|app|store|co|ai)\b/gi;
+const BOILERPLATE_URL = /dlvasolutions\.com/i;
+// Library names are dotted too, and "Socket.io real-time sessions" read as a
+// live project link, which let a letter with no addresses at all pass. A bare
+// dotted name counts only when it is not one of these; anything with a scheme,
+// "www." or a path is unambiguous and is never tested against it.
+const NOT_A_SITE =
+  /\.js$|^(?:socket|node|next|nuxt|vue|express|three|d3|chart|moment|jquery|react|angular|ember|backbone|nest|remix|deno|bun|rx)\.(?:io|js|net|dev)$/i;
+
 const TIMELINE_ASK =
   /\b(timeline|time ?frame|turnaround|how (?:long|soon)|when (?:can|could|would) you|deadline|eta|delivery date|lead time)\b/i;
 const DURATION =
@@ -651,6 +671,28 @@ export function unansweredAsks(asks: string[], reply: string): string[] {
     // estimated timeline" was marked answered by the availability half alone and
     // the timeline half was never looked at, which is how a real application went
     // out telling the employer nothing about when the build would land.
+    // An address ask needs an address, and not the one at the bottom of every
+    // letter. Checked before the synonyms, which would otherwise be satisfied by
+    // the word "portfolio" in the sign-off block.
+    if (URL_ASK.test(ask)) {
+      const urls = (reply || '').match(ANY_URL) || [];
+      const real = urls.filter((u) => {
+        if (BOILERPLATE_URL.test(u)) return false;
+        // A scheme, "www." or a path makes it unmistakably an address.
+        if (/^https?:\/\/|^www\.|\//.test(u)) return true;
+        return !NOT_A_SITE.test(u);
+      });
+      if (real.length === 0) return true;
+      // Addresses are there, which is the part that can be checked; whether they
+      // demonstrate the right thing is the writer's job, not a regex's. Return
+      // here rather than falling through to the generic word overlap, which
+      // flagged a letter carrying three real project links because it shared
+      // fewer than half its words with a long ask.
+      for (const [topic, answered] of SYNONYMS) {
+        if (topic.test(ask.toLowerCase())) return !answered.test(body);
+      }
+      return false;
+    }
     if (TIMELINE_ASK.test(ask)) {
       // Only a DURATION answers it. A bare number is not enough: the real reply
       // said "moving through the three phases back to back", putting "three"
