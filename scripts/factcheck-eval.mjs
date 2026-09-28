@@ -26,7 +26,33 @@ if (!key) {
   process.exit(1);
 }
 
-const { factCheck, newCostMeter } = await import('../src/lib/application-writer.ts');
+// application-writer imports through the "@/lib/..." alias, which Next resolves
+// and plain node does not. Copy the dependency graph into a temp dir with the
+// alias rewritten, so this runs the REAL shipped source rather than a copy of it.
+const { mkdtempSync, writeFileSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+const { join } = await import('node:path');
+const { pathToFileURL } = await import('node:url');
+
+const LIB = new URL('../src/lib/', import.meta.url);
+const dir = mkdtempSync(join(tmpdir(), 'jf-eval-'));
+for (const mod of ['prompt-safety', 'roles', 'post-asks', 'schedule', 'verbatim', 'ai-config', 'cost-meter']) {
+  writeFileSync(
+    join(dir, mod + '.ts'),
+    readFileSync(new URL(mod + '.ts', LIB), 'utf8').replace(/from '@\/lib\/([\w-]+)'/g, "from './$1.ts'")
+  );
+}
+writeFileSync(
+  join(dir, 'writer.ts'),
+  readFileSync(new URL('application-writer.ts', LIB), 'utf8')
+    .replace(/from '@\/lib\/([\w-]+)'/g, "from './$1.ts'")
+    // The SDK is only used for TYPES here (Anthropic.TextBlockParam / Usage and
+    // the client parameter), and the temp dir has no node_modules, so stub it.
+    .replace("import Anthropic from '@anthropic-ai/sdk';", 'type Anthropic = any;')
+    // node's strip-only TS mode rejects a parameter property
+    .replace('public status = 500', 'status = 500')
+);
+const { factCheck, newCostMeter } = await import(pathToFileURL(join(dir, 'writer.ts')).href);
 
 // His real background, trimmed to what the checker is given. Everything NOT in
 // here is, by definition, a fabrication if the letter asserts it.
