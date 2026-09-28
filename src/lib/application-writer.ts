@@ -515,6 +515,14 @@ const AI_TELLS: [RegExp, string][] = [
   [/\bmy (?:background|experience) (?:is|lies|sits)\b[^.!?\n]{0,70}\brather than\b/i, 'describes his background as NOT being what the job wants'],
   [/\bmy (?:background|experience) (?:is|lies) more in\b/i, 'describes his background as NOT being what the job wants'],
   [/\bi (?:don'?t|do not) have (?:direct|formal|hands[- ]on|professional|any real|much|extensive) (?:experience|background)\b/i, 'volunteers a lack of experience'],
+  // The above needed an adjective AND the word "experience", so a real
+  // application opened with "I don't have Gravity Forms or WordPress backend
+  // WORK to point you to" and sailed through. Same self-disqualification, one
+  // noun away. The negative lookahead keeps "I don't have to work weekends",
+  // which is an ordinary sentence and not a confession.
+  [/\bi (?:don'?t|do not) have (?!to\b)[^.!?\n]{0,60}?\b(?:experience|background|work|samples?|examples?|projects?|portfolio|history|credentials?)\b/i, 'volunteers not having the work or samples the post asked for'],
+  [/\bi (?:don'?t|do not) have (?!to\b)[^.!?\n]{0,60}?\bto (?:point|show|share|send) you\b/i, 'volunteers having nothing to show'],
+  [/\b(?:i|we) (?:can'?t|cannot) (?:point|show|share)\b[^.!?\n]{0,30}\byou\b/i, 'volunteers having nothing to show'],
   [/\bno (?:direct|formal|prior|real|professional) (?:experience|background)\b/i, 'volunteers a lack of experience'],
   [/\b(?:while|although|though|admittedly) i (?:haven'?t|have not|lack|am not|'?m not)\b/i, 'opens a concession with "while/although I haven\'t"'],
   [/\bi'?m not (?:a|an|really a|traditionally a)\b[^.!?\n]{0,45}\b(?:but|however)\b/i, 'calls himself not-a-X before the comma'],
