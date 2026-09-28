@@ -744,18 +744,48 @@ console.log('[JF] Content script loaded on:', window.location.href);
     return jobs;
   }
 
+  // Pull a job description out of a document WITHOUT losing its line structure.
+  //
+  // textContent returns no newline for a <br>, and this board separates every
+  // line of a post with one, so textContent alone yields a run-on blob. Reading
+  // document.body also swallows the nav and footer, and a slice then throws away
+  // the END of the post, which is exactly where "How to Apply" lives. Measured
+  // on a live post, the old fallback produced 8000 characters containing neither
+  // the screening phrase nor the How to Apply section: every instruction the
+  // employer gave was discarded before the server ever saw the job.
+  function extractDescription(doc) {
+    const pick = (root) => {
+      let best = null;
+      root.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details')
+        .forEach((el) => {
+          if (!best || (el.textContent || '').length > (best.textContent || '').length) best = el;
+        });
+      return best;
+    };
+
+    const el = pick(doc) || doc.querySelector('main, article, #content') || doc.body;
+    if (!el) return '';
+
+    // Clone so the live page is never modified, then turn the block structure
+    // into real newlines before reading the text.
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('script, style, nav, header, footer').forEach((n) => n.remove());
+    copy.querySelectorAll('br').forEach((n) => n.replaceWith('\n'));
+    copy.querySelectorAll('p, div, li, tr, h1, h2, h3, h4, h5, h6').forEach((n) => {
+      n.append('\n');
+    });
+    return (copy.textContent || '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function scrapeJobDetail() {
     // For individual job pages (/jobseekers/job/XXXXX)
     const title = document.querySelector('h1, h2, h3, [class*="title"]')?.textContent?.trim();
 
     // Use the same scraping logic as handleClickApplyButton (the automated flow)
-    let description = '';
-    const descContainers = document.querySelectorAll('.job-description, [class*="description"], [class*="overview"], .job-details');
-    descContainers.forEach((el) => {
-      const text = el.textContent?.trim() || '';
-      if (text.length > description.length) description = text;
-    });
-    // Fallback: grab the main content area (same as automated flow)
+    let description = extractDescription(document);
     if (!description || description.length < 100) {
       const main = document.querySelector('main, .container, #content, article') || document.body;
       description = main.textContent?.trim()?.slice(0, 8000) || '';
@@ -1539,10 +1569,20 @@ console.log('[JF] Content script loaded on:', window.location.href);
         let job;
 
         // Check if we have cached job data from the detail page (user clicked native Apply button)
+        // NOT removed after use. Deleting it meant that a reload, a regenerate,
+        // or simply a second auto-fill fell into the fallback below, which used
+        // to hand the server a description with every instruction missing. It is
+        // overwritten whenever another job page is viewed, and the guard below
+        // makes sure a stale one is never applied to a different job.
         const { lastViewedJob } = await chrome.storage.local.get('lastViewedJob');
-        if (lastViewedJob) {
-          await chrome.storage.local.remove('lastViewedJob');
-          job = lastViewedJob;
+        const applyLink = document.querySelector('a[href*="/jobseekers/job/"]');
+        const wantedId = applyLink ? (applyLink.href.match(/-(\d+)(?:\?|$)/) || [])[1] : null;
+        const cachedIsThisJob =
+          !!lastViewedJob &&
+          (!wantedId || !lastViewedJob.id || String(lastViewedJob.id) === String(wantedId));
+
+        if (lastViewedJob && cachedIsThisJob) {
+          job = { ...lastViewedJob };
           job.apply_url = window.location.href; // Update to current apply URL
         } else {
           // Fallback: scrape what we can from the apply page itself
@@ -1555,7 +1595,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
           if (jobLink) jobDetailUrl = jobLink.href;
 
           // Scrape what we can from this page
-          let pageDesc = document.body.textContent?.slice(0, 6000) || '';
+          let pageDesc = extractDescription(document);
 
           // If we found a link to the job detail page, fetch its content in background
           if (jobDetailUrl) {
@@ -1564,7 +1604,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
               const html = await res.text();
               const parser = new DOMParser();
               const doc = parser.parseFromString(html, 'text/html');
-              const fullDesc = doc.body.textContent?.slice(0, 8000) || '';
+              // Parsed the same way as the job page, so the instructions at the
+              // END of the post survive. No slice here: the server clamps a long
+              // post itself, and it keeps BOTH ends when it does.
+              const fullDesc = extractDescription(doc);
               if (fullDesc.length > pageDesc.length) pageDesc = fullDesc;
             } catch (e) {
               // Could not fetch job detail page
