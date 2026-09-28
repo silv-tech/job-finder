@@ -89,6 +89,16 @@ const IMPERATIVE = new RegExp(
   'i'
 );
 
+// A request stated as a wish rather than an instruction: "I would first like you
+// to create a trial video". The adverb slot matters ("would FIRST like"), and the
+// verb must come from the ask list so that "we would like you to join a growing
+// team" and "I need you to be reliable" stay out.
+const REQUEST_VERBS = ASK_VERBS + '|create|film|build|prepare|produce|edit|design';
+const REQUEST_OF_YOU = new RegExp(
+  `\\b(?:i|we)\\s+(?:would\\s+)?(?:\\w+\\s+)?(?:like|need|want|expect|require|prefer|ask)\\s+(?:you\\s+)?to\\s+(?:${REQUEST_VERBS})\\b`,
+  'i'
+);
+
 // "Please do not apply if you have not worked with Simpro before" is not a
 // thing to answer. Neither is "Please only apply if you have experience".
 const NEGATIVE_ASK = /^(?:do not|don'?t|dont|never|no\b|only|avoid|refrain)/i;
@@ -447,6 +457,24 @@ export function extractAsks(description: string): string[] {
       }
 
       break; // the list has ended
+    }
+  }
+
+  // An explicit request addressed to the applicant, anywhere in the post:
+  // "I would first like you to create a trial video based on my introductory."
+  // That one sat as a bullet under a bare "Important:" heading, which opens no
+  // list and is not a section, so it was never collected at all - and it is a
+  // pre-hire deliverable, the kind of thing that decides whether an application
+  // goes anywhere. Scanned across the whole post for the same reason the
+  // question loop below is.
+  //
+  // Tight on purpose: it needs a first-person subject, an explicit "you to", and
+  // then a verb from the ASK list. "We would like you to join a fast-growing
+  // team" and "I need you to be reliable" both name no ask verb and are ignored,
+  // which is what keeps this from swallowing the sales pitch.
+  for (let i = 0; i < lines.length; i++) {
+    for (const sentence of splitSentences(lines[i])) {
+      if (REQUEST_OF_YOU.test(sentence)) push(sentence, i, FROM_ITEM);
     }
   }
 
