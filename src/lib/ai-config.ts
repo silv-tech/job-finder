@@ -132,6 +132,29 @@ export function stripAiTells(text: string): string {
     .replace(/…/g, '...'); // ellipsis char -> three dots
 }
 
+// How hard the DRAFT thinks. Measured: the draft produces about 3,450 output
+// tokens for a letter of roughly 600, so ~2,850 of every draft is reasoning
+// nobody reads, and at 46% of an application it is now the single biggest line.
+//
+// Unlike the fact-check, this one cannot be settled by a test with a right
+// answer: the draft IS the product, and whether a cheaper one reads as well is
+// a judgement only the person sending it can make. Env-overridable so the two
+// can be generated side by side, which scripts/draft-effort-ab.mjs does.
+//
+// TESTED, AND LEFT AT MEDIUM. Running the same application at both efforts,
+// 'low' produced MORE output tokens than 'medium' (3,838 against 3,571), not
+// fewer, so the mechanism the saving depended on - less thinking - did not
+// happen. The apparent price gap in that run was cache warmth, not effort: the
+// medium arm ran first and paid the cold write premium. The letter also lost
+// its greeting at 'low', opening straight into a claim with no "Hi".
+//
+// A negative result worth keeping: the next person to look for savings should
+// not spend money re-discovering that this dial does not turn.
+export const DRAFT_EFFORT =
+  (process.env.DRAFT_EFFORT === 'low' || process.env.DRAFT_EFFORT === 'high'
+    ? process.env.DRAFT_EFFORT
+    : 'medium') as 'low' | 'medium' | 'high';
+
 // How hard the fact-check pass thinks. Thinking bills as OUTPUT, and output is
 // about two thirds of what an application now costs.
 //

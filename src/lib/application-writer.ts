@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { WRITING_MODEL, FACT_CHECK_MODEL, FACT_CHECK_EFFORT, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
+import { WRITING_MODEL, FACT_CHECK_MODEL, FACT_CHECK_EFFORT, DRAFT_EFFORT, extractText, parseJsonResponse, stripAiTells } from '@/lib/ai-config';
 import {
   wrapJobPost,
   JOB_POST_SAFETY_RULES,
@@ -888,6 +888,7 @@ export async function writeApplication(
     try {
       draft = await callModel(client, '', {
         cacheBlocks: [{ text: stable, ttl: '1h' }, { text: perJob }],
+        effort: DRAFT_EFFORT,
         meter,
       });
     } catch (err) {

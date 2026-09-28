@@ -109,7 +109,7 @@ const CASES = [
     'because sales were stuck when I took over and nobody had a system.\n\nLeif' },
 ];
 
-const MODELS = ['claude-opus-5', 'claude-sonnet-5'];
+const MODELS = (process.env.EVAL_MODELS || 'claude-opus-5,claude-sonnet-5').split(',');
 const results = {};
 
 for (const model of MODELS) {
