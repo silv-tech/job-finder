@@ -79,10 +79,17 @@ const JOB = {
 
 // Each case: a draft, and the lies it contains. `clean` must produce NO findings.
 const CASES = [
+  // Strictly what the resume says, with nothing attributed across projects. The
+  // first version of this case claimed the chatbot platform ran "on the Claude
+  // API with Supabase" - but the resume gives those to ForgeAI and describes the
+  // chatbot platform without them. BOTH models flagged it, correctly: an
+  // attribute swap between two of his own projects is exactly the quiet
+  // fabrication this pass exists to catch, and subtler than anything planted
+  // below on purpose. Re-verified with the corrected text: zero findings, both.
   { name: 'clean (must not false-alarm)', lies: [], letter:
-    'Hi there,\n\nI built a multi-tenant white-label chatbot platform where bots train on PDF, ' +
-    'text or scraped URLs, running on the Claude API with Supabase. That is the shape of work ' +
-    'your LLM endpoint needs.\n\nLeif' },
+    'Hi there,\n\nI built WhiteLabelAI, a multi-tenant white-label chatbot platform where bots ' +
+    'train on PDF, text or scraped URLs and connect to Facebook Messenger through the Graph ' +
+    'API.\n\nLeif' },
   { name: 'invented employer', lies: ['Shopify'], letter:
     'Hi there,\n\nI spent three years at Shopify building checkout systems, and I built a ' +
     'white-label chatbot platform on the Claude API.\n\nLeif' },
