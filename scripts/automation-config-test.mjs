@@ -15,8 +15,7 @@ const want = (label, got, expected) => {
 console.log('--- what a fresh install seeds (onInstalled -> DEFAULT_CONFIG) ---');
 want('finds jobs without being told to', cfg.autoApply, true);
 want('sends without per-job approval', cfg.reviewBeforeSend, false);
-want('starts at 08:00 local', cfg.activeStartHour, 8);
-want('stops at 22:00 local', cfg.activeEndHour, 22);
+want('two windows: morning and evening', cfg.activeWindows, [[7, 11], [20, 23]]);
 want('scan every N minutes', cfg.scanInterval, 10);
 want('daily Apply Point budget', cfg.dailyApBudget, 10);
 want('server is production', cfg.apiUrl, 'https://jobs.dlvasolutions.com');
