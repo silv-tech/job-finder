@@ -1,5 +1,24 @@
 // Popup script for Job Finder extension
 
+const PRODUCTION_API_URL = 'https://jobs.dlvasolutions.com';
+
+// Mirrors apiUrlFrom() in background.js: a config saved against a local dev
+// server would otherwise point the popup at a dead port forever.
+function apiUrlFrom(config) {
+  const saved = config?.apiUrl;
+  if (!saved) return PRODUCTION_API_URL;
+  let host;
+  try {
+    host = new URL(saved).hostname;
+  } catch {
+    return PRODUCTION_API_URL;
+  }
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '[::1]') {
+    return PRODUCTION_API_URL;
+  }
+  return saved;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const loadingView = document.getElementById('loading-view');
   const loginView = document.getElementById('login-view');
@@ -16,7 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (authToken) {
     const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
-    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    const apiUrl = apiUrlFrom(config);
 
     // The background worker is the only place that refreshes tokens (refresh
     // tokens are single-use, so two refreshers would log the user out).
@@ -83,7 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('signup-link-btn').addEventListener('click', () => {
       const config = chrome.runtime.sendMessage({ action: 'getConfig' });
       config.then((c) => {
-        chrome.tabs.create({ url: (c?.apiUrl || 'https://jobs.dlvasolutions.com') });
+        chrome.tabs.create({ url: (apiUrlFrom(c)) });
       });
     });
   }
@@ -106,7 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
-      const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+      const apiUrl = apiUrlFrom(config);
 
       // Sign in via Supabase REST API directly
       const supabaseUrl = await getSupabaseUrl(apiUrl);
@@ -494,7 +513,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateTimer();
       setInterval(updateTimer, 1000);
     }
-    document.getElementById('api-url').value = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    document.getElementById('api-url').value = apiUrlFrom(config);
     document.getElementById('scan-interval').value = config?.scanInterval || 60;
 
     // Auto-save toggles when changed
@@ -596,7 +615,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Check connection
-    checkConnection(config?.apiUrl || 'https://jobs.dlvasolutions.com');
+    checkConnection(apiUrlFrom(config));
 
     // Check if there are saved results to show
     chrome.storage.local.get(['lastScanResults', 'lastScanTime']).then(({ lastScanResults, lastScanTime }) => {

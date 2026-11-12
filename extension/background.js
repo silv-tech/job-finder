@@ -2,12 +2,22 @@
 
 const DEFAULT_CONFIG = {
   apiUrl: 'https://jobs.dlvasolutions.com',
-  autoApply: false,
+  // Both of these are what he asked the build to do: find and apply without
+  // him driving it. A fresh install therefore comes up already running, since
+  // onInstalled seeds storage from here and a config he never opens would
+  // otherwise sit idle.
+  autoApply: true,
   scanInterval: 10,
-  // ON by default, and the code that reads it says so too
-  // (`reviewBeforeSend !== false`). It was only ever missing from here, which
-  // made the default send path look like the exceptional one.
-  reviewBeforeSend: true,
+  // OFF by his instruction: the whole point is applying without his attention.
+  // This is the one switch that sends real mail to real employers unattended,
+  // so it is worth being plain about what still protects him when it is off:
+  // posts that ask for a Loom, a video, a code test or a call never send, they
+  // are drafted and parked in the manual queue (detectManualRequirements), the
+  // scheduled cycle only runs inside activeStartHour..activeEndHour, the daily
+  // Apply Point budget caps the volume, and an explicit prohibition in the post
+  // blocks the application outright. Flipping "Review Before Sending" back on
+  // in the popup restores one-by-one approval at any time.
+  reviewBeforeSend: false,
   // The four kinds of job worth applying to, searched one per cycle.
   lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
   // A job post is a drop: the value is in being early. Anything older than this
@@ -17,6 +27,14 @@ const DEFAULT_CONFIG = {
   // the real limit. Defaults keep us inside one day's income.
   dailyApBudget: 10,
   maxAppliesPerDay: 10,
+  // The hours the scheduled cycle is allowed to run, in the user's own local
+  // time (the browser's clock, which is his). Employers read their inbox during
+  // their day, and an application that lands at 3am is buried by morning; this
+  // also keeps the automation off the board while he is asleep and cannot see
+  // what it is doing. Inclusive of the start hour, exclusive of the end, so
+  // 8 to 22 means the last cycle can start at 21:59.
+  activeStartHour: 8,
+  activeEndHour: 22,
   apReserve: 0,
   minApplyScore: 60,
   profile: {
@@ -30,6 +48,39 @@ const DEFAULT_CONFIG = {
     bio: '',
   },
 };
+
+// The API URL was configurable back when the app ran on a local dev server,
+// and a config saved then still points at localhost. Nothing serves that port
+// now, so every call fails while the session stays valid -- which surfaces as
+// "can't reach the server, you're still logged in" and never self-corrects,
+// because storage survives an extension update. Treat a loopback or malformed
+// saved URL as absent and fall back to the real host.
+function apiUrlFrom(config) {
+  const saved = config?.apiUrl;
+  if (!saved) return DEFAULT_CONFIG.apiUrl;
+  let host;
+  try {
+    host = new URL(saved).hostname;
+  } catch {
+    return DEFAULT_CONFIG.apiUrl;
+  }
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '[::1]') {
+    return DEFAULT_CONFIG.apiUrl;
+  }
+  return saved;
+}
+
+// Clear a stale URL out of storage too, so the popup's settings view and any
+// future reader see the corrected value rather than the dead one.
+async function repairStoredApiUrl() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config?.apiUrl) return;
+  const fixed = apiUrlFrom(config);
+  if (fixed !== config.apiUrl) {
+    await chrome.storage.local.set({ config: { ...config, apiUrl: fixed } });
+    console.log('[job-finder] repaired stale apiUrl', config.apiUrl, '->', fixed);
+  }
+}
 
 // What to type into the onlinejobs.ph search box for each lane. Scoring lives
 // server-side in src/lib/lanes.ts; this is only the search text.
@@ -419,7 +470,7 @@ async function refreshTokenIfNeeded(force = false) {
 
 async function refreshToken(authRefreshToken) {
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
   try {
     const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
     if (!cfgRes.ok) return 'unavailable';
@@ -523,12 +574,39 @@ async function ensureAlarms() {
   }
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+// Reads the window, clamped to real hours. An inverted or malformed pair falls
+// back to the default rather than locking the automation out of the whole day.
+function activeHours(config) {
+  const int = (v, dflt) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n >= 0 && n <= 24 ? n : dflt;
+  };
+  let start = int(config?.activeStartHour, DEFAULT_CONFIG.activeStartHour);
+  let end = int(config?.activeEndHour, DEFAULT_CONFIG.activeEndHour);
+  if (start >= end) {
+    start = DEFAULT_CONFIG.activeStartHour;
+    end = DEFAULT_CONFIG.activeEndHour;
+  }
+  return { start, end };
+}
+
+function withinActiveHours(config, now = new Date()) {
+  const { start, end } = activeHours(config);
+  const h = now.getHours();
+  return h >= start && h < end;
+}
+
 // Initialize on install / update
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('config');
   if (!existing.config) {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
+  await repairStoredApiUrl();
   await ensureAlarms();
 });
 
@@ -539,6 +617,7 @@ chrome.runtime.onStartup.addListener(() => {
 // Also check whenever the service worker wakes up
 ensureAlarms();
 migrateLanes();
+repairStoredApiUrl();
 // A fresh worker means any saved run belongs to a worker Chrome shut down
 recoverInterruptedRun();
 
@@ -575,6 +654,18 @@ async function runAutoApplyCycle(trigger, opts) {
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) {
       await recordCycle('Auto-apply is off', 'Turn on Auto-Apply Mode.');
+      return;
+    }
+
+    // Outside his waking hours the scheduled cycle stands down. A cycle he
+    // starts by hand always runs: the window is about unattended applying, not
+    // about blocking him from using his own extension.
+    if (trigger === 'schedule' && !withinActiveHours(config)) {
+      const { start, end } = activeHours(config);
+      await recordCycle(
+        'Outside working hours',
+        `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`
+      );
       return;
     }
 
@@ -648,7 +739,7 @@ async function handleAutoApplyCycle(tabId, lane, opts) {
     }
 
     // Step 2: Match jobs
-    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    const apiUrl = apiUrlFrom(config);
     const matchRes = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       body: JSON.stringify({ jobs, lane, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
@@ -1116,7 +1207,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const { config } = await chrome.storage.local.get('config');
-        const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+        const apiUrl = apiUrlFrom(config);
         const res = await apiFetch(`${apiUrl}/api/extension/applications`);
         if (!res.ok) { sendResponse({ applications: [], error: 'HTTP ' + res.status }); return; }
         sendResponse(await res.json());
@@ -1293,7 +1384,7 @@ async function handleMatchJobs(jobs) {
   }
 
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   try {
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
@@ -1323,7 +1414,7 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
   }
 
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   // Hoisted out of the try so the catch below can still book a stream that died
   // after the server had already paid for the model calls. `booked` makes the
@@ -1440,7 +1531,7 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
 
 async function handleSaveJob(job) {
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   try {
     const res = await apiFetch(`${apiUrl}/api/saved-jobs`, {
@@ -1594,7 +1685,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     } catch {}
 
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    const apiUrl = apiUrlFrom(config);
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
@@ -1739,7 +1830,7 @@ async function queueManual(job, requirements, application) {
 
   try {
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    const apiUrl = apiUrlFrom(config);
     await apiFetch(`${apiUrl}/api/extension/log-application`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1769,7 +1860,7 @@ async function logApplication(job, application) {
   // it sends and the end-of-day report has nothing to show.
   try {
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    const apiUrl = apiUrlFrom(config);
     await apiFetch(`${apiUrl}/api/extension/log-application`, {
       method: 'POST',
       body: JSON.stringify({
