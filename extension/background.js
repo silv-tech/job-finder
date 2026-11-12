@@ -17,6 +17,14 @@ const DEFAULT_CONFIG = {
   // the real limit. Defaults keep us inside one day's income.
   dailyApBudget: 10,
   maxAppliesPerDay: 10,
+  // The hours the scheduled cycle is allowed to run, in the user's own local
+  // time (the browser's clock, which is his). Employers read their inbox during
+  // their day, and an application that lands at 3am is buried by morning; this
+  // also keeps the automation off the board while he is asleep and cannot see
+  // what it is doing. Inclusive of the start hour, exclusive of the end, so
+  // 8 to 22 means the last cycle can start at 21:59.
+  activeStartHour: 8,
+  activeEndHour: 22,
   apReserve: 0,
   minApplyScore: 60,
   profile: {
@@ -556,6 +564,32 @@ async function ensureAlarms() {
   }
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+// Reads the window, clamped to real hours. An inverted or malformed pair falls
+// back to the default rather than locking the automation out of the whole day.
+function activeHours(config) {
+  const int = (v, dflt) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n >= 0 && n <= 24 ? n : dflt;
+  };
+  let start = int(config?.activeStartHour, DEFAULT_CONFIG.activeStartHour);
+  let end = int(config?.activeEndHour, DEFAULT_CONFIG.activeEndHour);
+  if (start >= end) {
+    start = DEFAULT_CONFIG.activeStartHour;
+    end = DEFAULT_CONFIG.activeEndHour;
+  }
+  return { start, end };
+}
+
+function withinActiveHours(config, now = new Date()) {
+  const { start, end } = activeHours(config);
+  const h = now.getHours();
+  return h >= start && h < end;
+}
+
 // Initialize on install / update
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('config');
@@ -610,6 +644,18 @@ async function runAutoApplyCycle(trigger, opts) {
     const { config } = await chrome.storage.local.get('config');
     if (!config?.autoApply) {
       await recordCycle('Auto-apply is off', 'Turn on Auto-Apply Mode.');
+      return;
+    }
+
+    // Outside his waking hours the scheduled cycle stands down. A cycle he
+    // starts by hand always runs: the window is about unattended applying, not
+    // about blocking him from using his own extension.
+    if (trigger === 'schedule' && !withinActiveHours(config)) {
+      const { start, end } = activeHours(config);
+      await recordCycle(
+        'Outside working hours',
+        `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`
+      );
       return;
     }
 
