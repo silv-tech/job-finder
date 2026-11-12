@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const { data: apps, error } = await supabase
     .from('applications')
-    .select('user_id, title, company, apply_url, lane, role, score, apply_points, subject, message, sent_at')
+    .select('user_id, title, company, apply_url, lane, role, score, apply_points, subject, message, sent_at, status')
     .gte('sent_at', new Date(startUtc).toISOString())
     .lt('sent_at', new Date(endUtc).toISOString())
     .order('score', { ascending: false });
