@@ -674,11 +674,18 @@ async function runAutoApplyCycle(trigger, opts) {
     // starts by hand always runs: the window is about unattended applying, not
     // about blocking him from using his own extension.
     if (trigger === 'schedule' && !withinActiveHours(config)) {
+      // NOT recordCycle. The alarm fires every scanInterval minutes all night,
+      // so writing this to lastCycle overwrote the real outcome six times an
+      // hour: a cycle he ran by hand at 05:10 was erased by the 05:12 alarm,
+      // and the popup then claimed nothing had happened. A stand-down is not an
+      // outcome; it goes somewhere of its own.
       const { start, end } = activeHours(config);
-      await recordCycle(
-        'Outside working hours',
-        `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`
-      );
+      await chrome.storage.local.set({
+        lastStandDown: {
+          at: new Date().toISOString(),
+          detail: `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`,
+        },
+      });
       return;
     }
 
@@ -1261,9 +1268,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const cursor = stored.laneCursor || 0;
       const nextLane = order[cursor % order.length];
       const lastCycle = (await chrome.storage.local.get('lastCycle')).lastCycle || null;
+      // Only worth showing while it is actually true. A stand-down from last
+      // night would otherwise still read as "Asleep" at noon.
+      const sdStored = (await chrome.storage.local.get('lastStandDown')).lastStandDown || null;
+      const lastStandDown = sdStored && !withinActiveHours(config) ? sdStored : null;
       const cost = await getCostLedger();
       sendResponse({
         lastCycle,
+        lastStandDown,
         // Every field normalised here, so a ledger written by an older version
         // cannot hand the popup an undefined to render.
         cost: {
