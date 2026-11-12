@@ -433,6 +433,19 @@ async function markSeen(urls) {
   await chrome.storage.local.set({ seenUrls: [...seen].slice(-4000) });
 }
 
+// Give a job back. markSeen runs BEFORE the attempt, which is right: it stops
+// two cycles racing onto the same post. But a job that provably did not send
+// was then burned anyway, so a form that loaded slowly or a box that could not
+// be matched cost a qualifying post permanently. Only call this where nothing
+// was sent and no point was spent; an attempt whose outcome is UNKNOWN must
+// stay marked, because a duplicate application is worse than a lost one.
+async function unmarkSeen(url) {
+  if (!url) return;
+  const stored = await chrome.storage.local.get('seenUrls');
+  const seen = (stored.seenUrls || []).filter((u) => u !== url);
+  await chrome.storage.local.set({ seenUrls: seen });
+}
+
 // Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
 function tokenSecondsLeft(token) {
   try {
@@ -1059,7 +1072,13 @@ async function applyToJobs(jobs) {
 
         if (fillResult?.manual_required) outcomes.push('needs manual steps');
         else if (fillResult?.success) outcomes.push('sent');
-        else outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
+        else {
+          outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
+          // Nothing was sent and no point was spent, so this post is still
+          // worth applying to. Without this it stayed marked and was never
+          // seen again.
+          await unmarkSeen(job.apply_url);
+        }
 
         if (fillResult?.manual_required) {
           // A Chrome notification vanishes and the job is then lost. Jobs that
