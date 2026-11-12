@@ -39,4 +39,16 @@ for (const cfg of [
 ]) {
   check(`${JSON.stringify(cfg)} -> hours`, activeHours(cfg), {start:8,end:22});
 }
+console.log('--- a stand-down must not be recorded as an outcome ---');
+// The alarm fires every scanInterval minutes all night. Writing the stand-down
+// to lastCycle erased the real result six times an hour.
+const bg = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
+const branch = bg.slice(bg.indexOf("if (trigger === 'schedule' && !withinActiveHours(config))"));
+const body = branch.slice(0, branch.indexOf('\n    }') + 6);
+check('stand-down does NOT call recordCycle', !body.includes('recordCycle('), true);
+check('stand-down writes its own key', body.includes('lastStandDown'), true);
+check('it still explains the window', /activeHours\(config\)/.test(body), true);
+check('the popup is sent lastStandDown', /lastStandDown,/.test(bg), true);
+check('shown only while actually outside the window', /!withinActiveHours\(config\) \? sdStored : null/.test(bg), true);
+
 console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILURE(S)`);

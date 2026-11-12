@@ -323,12 +323,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Say where the last cycle stopped. "Never run" and "ran but found
         // nothing" used to look identical from out here.
         const c = b.lastCycle;
+        // A stand-down is kept separately so it cannot erase a real outcome, so
+        // it has to be shown separately too, or "nothing is happening" has no
+        // explanation out here.
+        const sd = b.lastStandDown && b.lastStandDown.detail ? ` Asleep: ${b.lastStandDown.detail}` : '';
         if (!c) {
-          set('today-last-cycle', 'Last cycle: never run yet.');
+          set('today-last-cycle', 'Last cycle: never run yet.' + sd);
         } else {
           const t = new Date(c.at);
           const hhmm = isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          set('today-last-cycle', `Last cycle: ${hhmm} - ${c.status}${c.detail ? ' (' + c.detail + ')' : ''}`);
+          set('today-last-cycle', `Last cycle: ${hhmm} - ${c.status}${c.detail ? ' (' + c.detail + ')' : ''}` + sd);
         }
 
         // What the API charged for today's messages. A server too old to send

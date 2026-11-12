@@ -150,7 +150,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
   // unattended path that happens AFTER markApplied, burning the job. Gate on a
   // textarea too: a half-rendered form (subject present, message not) would
   // otherwise be filled and sent incomplete.
-  async function waitForFormFields(timeoutMs = 4000) {
+  // Auto-apply opens these in background tabs, which Chrome throttles, so the
+  // form can take well over the 4s this used to allow. A timeout here reads as
+  // "No form fields" and costs a qualifying job.
+  async function waitForFormFields(timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
     let fields = detectFormFields();
     while (Date.now() < deadline && (fields.length === 0 || !document.querySelector('textarea'))) {
@@ -191,7 +194,12 @@ console.log('[JF] Content script loaded on:', window.location.href);
     // and spend the Apply Points on it. The message body is the application;
     // without it there is nothing worth sending.
     if (!filled.includes('message')) {
-      return { success: false, error: 'Message field not filled, refusing to send' };
+      const why = !application.cover_letter
+        ? 'the writer returned no message body'
+        : document.querySelectorAll('textarea').length === 0
+          ? 'the page has no textarea'
+          : 'no textarea could be filled';
+      return { success: false, error: `Message field not filled (${why}), refusing to send` };
     }
 
     // Fill apply points with the tier the match earned, not a fixed 2.
@@ -967,16 +975,29 @@ console.log('[JF] Content script loaded on:', window.location.href);
       }
     }
 
-    // Fallback: if message wasn't filled, find the first big empty textarea
+    // Fallback: the message is the application, so this is the one field that
+    // must end up filled. The previous version skipped any textarea that
+    // already had text, which is exactly the case on a board that pre-populates
+    // its message box: the only box worth filling was the only one skipped, and
+    // the caller then refused to send a letter that had already been written
+    // and paid for. A pre-filled box is now overwritten; nothing a board
+    // pre-fills is worth more than the application.
     if (!filled.includes('message') && application.cover_letter) {
-      const textareas = document.querySelectorAll('textarea');
-      for (const ta of textareas) {
-        const label = (ta.closest('label')?.textContent || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent || '').toLowerCase();
-        if (!ta.value?.trim() && !label.includes('contact')) {
-          setInputValue(ta, application.cover_letter);
-          filled.push('message');
-          break;
-        }
+      const candidates = [...document.querySelectorAll('textarea')].filter((ta) => {
+        if (ta.disabled || ta.readOnly) return false;
+        if (ta.offsetParent === null) return false; // hidden
+        const label = (
+          ta.closest('label')?.textContent
+          || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent
+          || ta.name || ta.placeholder || ''
+        ).toLowerCase();
+        return !label.includes('contact');
+      });
+      // The biggest visible box is the message box on every variant seen so far.
+      candidates.sort((a, b) => (b.clientHeight * b.clientWidth) - (a.clientHeight * a.clientWidth));
+      if (candidates.length) {
+        setInputValue(candidates[0], application.cover_letter);
+        filled.push('message');
       }
     }
 

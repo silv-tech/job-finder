@@ -433,6 +433,19 @@ async function markSeen(urls) {
   await chrome.storage.local.set({ seenUrls: [...seen].slice(-4000) });
 }
 
+// Give a job back. markSeen runs BEFORE the attempt, which is right: it stops
+// two cycles racing onto the same post. But a job that provably did not send
+// was then burned anyway, so a form that loaded slowly or a box that could not
+// be matched cost a qualifying post permanently. Only call this where nothing
+// was sent and no point was spent; an attempt whose outcome is UNKNOWN must
+// stay marked, because a duplicate application is worse than a lost one.
+async function unmarkSeen(url) {
+  if (!url) return;
+  const stored = await chrome.storage.local.get('seenUrls');
+  const seen = (stored.seenUrls || []).filter((u) => u !== url);
+  await chrome.storage.local.set({ seenUrls: seen });
+}
+
 // Seconds until a Supabase access token (JWT) expires. 0 if unreadable.
 function tokenSecondsLeft(token) {
   try {
@@ -661,11 +674,18 @@ async function runAutoApplyCycle(trigger, opts) {
     // starts by hand always runs: the window is about unattended applying, not
     // about blocking him from using his own extension.
     if (trigger === 'schedule' && !withinActiveHours(config)) {
+      // NOT recordCycle. The alarm fires every scanInterval minutes all night,
+      // so writing this to lastCycle overwrote the real outcome six times an
+      // hour: a cycle he ran by hand at 05:10 was erased by the 05:12 alarm,
+      // and the popup then claimed nothing had happened. A stand-down is not an
+      // outcome; it goes somewhere of its own.
       const { start, end } = activeHours(config);
-      await recordCycle(
-        'Outside working hours',
-        `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`
-      );
+      await chrome.storage.local.set({
+        lastStandDown: {
+          at: new Date().toISOString(),
+          detail: `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`,
+        },
+      });
       return;
     }
 
@@ -1059,7 +1079,13 @@ async function applyToJobs(jobs) {
 
         if (fillResult?.manual_required) outcomes.push('needs manual steps');
         else if (fillResult?.success) outcomes.push('sent');
-        else outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
+        else {
+          outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
+          // Nothing was sent and no point was spent, so this post is still
+          // worth applying to. Without this it stayed marked and was never
+          // seen again.
+          await unmarkSeen(job.apply_url);
+        }
 
         if (fillResult?.manual_required) {
           // A Chrome notification vanishes and the job is then lost. Jobs that
@@ -1242,9 +1268,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const cursor = stored.laneCursor || 0;
       const nextLane = order[cursor % order.length];
       const lastCycle = (await chrome.storage.local.get('lastCycle')).lastCycle || null;
+      // Only worth showing while it is actually true. A stand-down from last
+      // night would otherwise still read as "Asleep" at noon.
+      const sdStored = (await chrome.storage.local.get('lastStandDown')).lastStandDown || null;
+      const lastStandDown = sdStored && !withinActiveHours(config) ? sdStored : null;
       const cost = await getCostLedger();
       sendResponse({
         lastCycle,
+        lastStandDown,
         // Every field normalised here, so a ledger written by an older version
         // cannot hand the popup an undefined to render.
         cost: {
