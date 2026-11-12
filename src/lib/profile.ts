@@ -10,9 +10,14 @@ export interface UserProfile {
   skills: string[];
   bio: string;
   message_template: string;
+  // Deliberately NOT defaulted. The real values live in the Supabase profiles
+  // row, which is what the writer actually reads, and they are several times
+  // longer than anything worth hardcoding here. A default is a second source of
+  // truth for the same facts, and the shorter one at that.
   resume_text?: string;
   // Real messages the user has written, used to ground applications in their
-  // actual voice so they read as human rather than AI-generated.
+  // actual voice so they read as human rather than AI-generated. Same reason:
+  // the real samples live in Supabase.
   writing_samples?: string;
 }
 
@@ -70,12 +75,7 @@ Let me know if you'd like to chat, I'm happy to jump on a call anytime.
 {{name}}
 {{email}}
 {{phone}}`,
-  // The writer's prompt only includes a FULL RESUME block when this is set.
-  // While it was unset every application was written from the one-line bio and
-  // the skills list alone, which is why they all reached for the same three
-  // numbers. Kept in sync with https://dlvasolutions.com/portfolio/ by hand.
-  resume_text: "LEIF SOLIVA\nFull-Stack Developer, AI Builder & Operations Leader\nPhilippines (UTC+8). 6+ years experience. BS Information Technology, Ateneo de Davao University.\n\nHEADLINE NUMBERS\n- 9 products shipped and running\n- 30+ people managed\n- Scaled monthly net sales from $40,000 to $200,000 (5x) in a previous operations role\n\nPRODUCTS BUILT (his own work, safe to name)\n- RallyCam: court recording system for pickleball that cuts 8-second highlight clips automatically. React, Node.js, ffmpeg, TensorFlow.js pose detection, SQLite, WebSockets, Cloudflare R2, RTSP/ONVIF cameras, hardware encoding.\n- WhiteLabelAI: multi-tenant AI chatbot platform agencies resell under their own brand. Next.js, Express, Supabase, Claude API, Facebook Graph API, Railway.\n- Nocturne Monitors: real-time restock alerting for trading cards across 30+ Canadian retailers. Node.js, Discord.js, Redis, Express, Docker, web scraping.\n- Dark Sync: internet cafe management system. QR registration, POS, session tracking, analytics. React, Express, SQLite, Socket.io, Electron, Capacitor.\n- AgentForge / ForgeAI: automated cold outreach that researches a business and writes a personalised email per lead. Node.js, Claude API, Google Places, Railway, Resend.\n- DCTE Store: PC shop e-commerce with trade-in flow, loyalty points, and AI-generated listings from photos. Node.js, Express, JWT auth, Claude vision API.\n- H.U.B Store: PC builder storefront, 150+ products, GCash checkout, inventory system.\n- DLVASolutions: agency site for development, AI and VA services. Custom design, Netlify.\n- Pickleball Court Booking: client site with real-time court availability and reservations.\n\nWORK HISTORY (never name these employers in an application)\n- 2024-Present: Founder, own agency. 9 products shipped for clients and as own products.\n- 2024-2025: Operations Manager at a talent agency. Ran a team of 30+. Grew monthly net sales from $40,000 to $200,000.\n- 2021-2024: Project Manager at an AI company.\n- 2021-2023: AI Client Solutions Manager at an AI company.\n- 2020-2021: Customer service representative and appointment setting.\n\nTECHNICAL SKILLS\nFrontend: JavaScript, TypeScript, React, Next.js, HTML/CSS, Tailwind, PWA, Vite.\nBackend: Node.js, Express, Supabase, PostgreSQL, Redis, SQLite, WebSockets, Socket.io, REST APIs.\nAuth and security: JWT, bcrypt, sessions, rate limiting, security headers, CSP.\nAI and LLM: Claude API, OpenAI, chatbots, RAG, vision AI, prompt design, web scraping, email automation.\nVideo and vision: ffmpeg, RTSP/ONVIF, RTMP, TensorFlow.js pose detection, hardware encoding.\nPlatforms and deploy: Railway, Docker, Netlify, Vercel, Cloudflare, Electron, Capacitor, Git, CI/CD.\nIntegrations: Discord bots, Facebook Messenger, Google Places, GCash, Xendit, Stripe, Resend, Make, Zapier, n8n.\nOther: QR codes, geolocation, Leaflet maps, text-to-speech, PDF generation, monorepos, testing.\n\nOPERATIONS AND MANAGEMENT\nManaged 30+ people. Hiring, onboarding, scheduling, performance tracking, process documentation.\nClient-facing solutions work: scoping what a client needs and turning it into a shipped product.\n\nWHAT CLIENTS HAVE SAID\n- A PC shop CEO: \"Solid! I didn't expect it. He did more than what I asked for.\"\n- A storefront CEO: \"Great! I'm happy with your work. You really delivered and gave me what I wanted.\"\n- A monitoring service CEO: \"Top tier!\"\n- A mentor: \"It's crazy that you managed to build what was in your vision.\"",
-  writing_samples: "These are short messages Leif wrote himself. They are chat messages about work, not letters to employers, so copy the VOICE and not the format or the typos.\n\n\"lets work on this, basically I want to update my extension on my chrome.\"\n\n\"Its good now, but I dont think that everything is perfectly working, I dont see it filling up applications automatically.\"\n\n\"Please figure this one, the extension is updated I believe, but as what I have said, I am using my macbook chrome for this, and basically I to use it here on my mac.\"\n\n\"Whatever you think is best, do it\"\n\n\"I dont see error as well at the manage extension channel.\"\n\n\"I usually write with very basic english grammar and I like it short and direct. I talk proud as well since I know I can deliver.\"\n\nWhat to take from these: short sentences. Plain everyday words, no vocabulary reaching. He says things straight out and gets to the point fast. He is sure of himself and does not soften what he can do. He says \"basically\" and \"as well\" a lot, which is fine in small doses but should not be a tic in an application.",
+  writing_samples: '',
 };
 
 const STORAGE_KEY = 'job_finder_profile';

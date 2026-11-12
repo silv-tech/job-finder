@@ -362,6 +362,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Signature of what is on screen. Without this the 10s repaint rebuilt the
+    // card's innerHTML unconditionally, which wiped the "Copied" confirmation
+    // and destroyed the buttons underneath a click already in progress.
+    let manualPainted = '';
+
     function paintManual() {
       chrome.runtime.sendMessage({ action: 'getManualQueue' }, (queue) => {
         const card = document.getElementById('manual-card');
@@ -372,39 +377,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         // every listener registered after this point in setup.
         if (!Array.isArray(queue) || queue.length === 0) {
           card.classList.add('hidden');
+          manualPainted = '';
           return;
         }
         card.classList.remove('hidden');
         document.getElementById('manual-count').textContent = '(' + queue.length + ')';
-        list.innerHTML = queue.map((m) => `
+
+        const signature = queue.map((m) => (m.apply_url || '') + '|' + (m.subject || '') + '|' + (m.message || '').length).join('\n');
+        if (signature === manualPainted) return; // unchanged: leave the DOM alone
+        manualPainted = signature;
+
+        const copyBtn = (i, what, label) => `
+              <button class="manual-copy" data-i="${i}" data-what="${what}"
+                      style="margin-top:6px;display:block;width:100%;background:#ffffff;border:1px solid #fbbf24;border-radius:6px;padding:5px;font-size:11px;color:#92400e;cursor:pointer;">
+                ${label}
+              </button>`;
+
+        list.innerHTML = queue.map((m, i) => `
           <div style="background:#ffffff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">
             <a href="${esc(m.apply_url)}" target="_blank" rel="noopener"
                style="font-size:12px;font-weight:600;color:#92400e;text-decoration:none;">${esc(m.title)}</a>
             <div style="font-size:11px;color:#b45309;padding-top:2px;">
               ${m.score ? esc(m.score) + '% match &middot; ' : ''}${esc((m.requirements || []).join(', '))}
             </div>
-            ${m.message ? `
-              <button class="manual-copy" data-i="${queue.indexOf(m)}"
-                      style="margin-top:6px;display:block;width:100%;background:#ffffff;border:1px solid #fbbf24;border-radius:6px;padding:5px;font-size:11px;color:#92400e;cursor:pointer;">
-                Copy the drafted message
-              </button>` : ''}
+            ${m.subject ? `
+              <div style="font-size:9px;font-weight:700;letter-spacing:.06em;color:#b45309;text-transform:uppercase;padding-top:6px;">Subject</div>
+              <div style="font-size:11px;color:#0f172a;line-height:1.4;">${esc(m.subject)}</div>` : ''}
+            ${m.subject ? copyBtn(i, 'subject', 'Copy the subject') : ''}
+            ${m.message ? copyBtn(i, 'message', 'Copy the drafted message') : ''}
             <button class="manual-done" data-url="${esc(m.apply_url)}"
                     style="margin-top:6px;background:none;border:none;padding:0;font-size:11px;color:#a16207;cursor:pointer;text-decoration:underline;">
               Done, remove it
             </button>
           </div>`).join('');
-        // The message is already written; he only has to record the video.
+
+        // Both halves of the application are already written; he only records
+        // the video. The subject was stored and never shown, so he had to
+        // invent one after the writer had already produced a good one.
         list.querySelectorAll('.manual-copy').forEach((btn) => {
+          const original = btn.textContent;
           btn.addEventListener('click', async () => {
             const item = queue[Number(btn.dataset.i)];
             if (!item) return;
-            try {
-              await navigator.clipboard.writeText(item.message || '');
-              btn.textContent = 'Copied';
-            } catch {
-              btn.textContent = 'Could not copy';
+            const text = btn.dataset.what === 'subject' ? (item.subject || '') : (item.message || '');
+            if (!text) {
+              btn.textContent = 'Nothing to copy';
+            } else {
+              try {
+                await navigator.clipboard.writeText(text);
+                btn.textContent = 'Copied';
+              } catch {
+                btn.textContent = 'Could not copy';
+              }
             }
-            setTimeout(() => { btn.textContent = 'Copy the drafted message'; }, 4000);
+            setTimeout(() => { btn.textContent = original; }, 4000);
           });
         });
 
@@ -412,7 +438,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           btn.addEventListener('click', () => {
             chrome.runtime.sendMessage(
               { action: 'clearManualJob', apply_url: btn.dataset.url },
-              () => paintManual()
+              () => { manualPainted = ''; paintManual(); }
             );
           });
         });
