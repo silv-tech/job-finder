@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyExtensionAuth } from '@/lib/auth-api';
 import { getServiceClient } from '@/lib/supabase';
+import { mergeProfileRow } from '@/lib/profile-merge';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,24 +57,15 @@ export async function POST(req: NextRequest) {
 
     const supabase = getServiceClient();
 
-    const { error } = await supabase
+    const { data: existing } = await supabase
       .from('profiles')
-      .upsert({
-        user_id: userId,
-        name: body.name || '',
-        email: body.email || '',
-        phone: body.phone || '',
-        portfolio_url: body.portfolio_url || '',
-        linkedin_url: body.linkedin_url || '',
-        upwork_url: body.upwork_url || '',
-        resume_url: body.resume_url || '',
-        headline: body.headline || '',
-        skills: body.skills || [],
-        bio: body.bio || '',
-        resume_text: body.resume_text || '',
-        writing_samples: body.writing_samples || '',
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const row = mergeProfileRow(existing, body, userId);
+
+    const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'user_id' });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });

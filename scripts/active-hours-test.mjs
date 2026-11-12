@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
 const grab = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))[0];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- read by the eval'd activeHours()
 const DEFAULT_CONFIG = { activeStartHour: 8, activeEndHour: 22 };
 const ctx = eval(`(() => { ${grab('pad2')} ${grab('activeHours')} ${grab('withinActiveHours')}
   return { pad2, activeHours, withinActiveHours }; })()`);
