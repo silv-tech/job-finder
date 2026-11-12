@@ -31,6 +31,39 @@ const DEFAULT_CONFIG = {
   },
 };
 
+// The API URL was configurable back when the app ran on a local dev server,
+// and a config saved then still points at localhost. Nothing serves that port
+// now, so every call fails while the session stays valid -- which surfaces as
+// "can't reach the server, you're still logged in" and never self-corrects,
+// because storage survives an extension update. Treat a loopback or malformed
+// saved URL as absent and fall back to the real host.
+function apiUrlFrom(config) {
+  const saved = config?.apiUrl;
+  if (!saved) return DEFAULT_CONFIG.apiUrl;
+  let host;
+  try {
+    host = new URL(saved).hostname;
+  } catch {
+    return DEFAULT_CONFIG.apiUrl;
+  }
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '[::1]') {
+    return DEFAULT_CONFIG.apiUrl;
+  }
+  return saved;
+}
+
+// Clear a stale URL out of storage too, so the popup's settings view and any
+// future reader see the corrected value rather than the dead one.
+async function repairStoredApiUrl() {
+  const { config } = await chrome.storage.local.get('config');
+  if (!config?.apiUrl) return;
+  const fixed = apiUrlFrom(config);
+  if (fixed !== config.apiUrl) {
+    await chrome.storage.local.set({ config: { ...config, apiUrl: fixed } });
+    console.log('[job-finder] repaired stale apiUrl', config.apiUrl, '->', fixed);
+  }
+}
+
 // What to type into the onlinejobs.ph search box for each lane. Scoring lives
 // server-side in src/lib/lanes.ts; this is only the search text.
 const LANE_SEARCHES = {
@@ -419,7 +452,7 @@ async function refreshTokenIfNeeded(force = false) {
 
 async function refreshToken(authRefreshToken) {
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
   try {
     const cfgRes = await fetch(`${apiUrl}/api/auth/supabase-config`);
     if (!cfgRes.ok) return 'unavailable';
@@ -529,6 +562,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!existing.config) {
     await chrome.storage.local.set({ config: DEFAULT_CONFIG });
   }
+  await repairStoredApiUrl();
   await ensureAlarms();
 });
 
@@ -539,6 +573,7 @@ chrome.runtime.onStartup.addListener(() => {
 // Also check whenever the service worker wakes up
 ensureAlarms();
 migrateLanes();
+repairStoredApiUrl();
 // A fresh worker means any saved run belongs to a worker Chrome shut down
 recoverInterruptedRun();
 
@@ -648,7 +683,7 @@ async function handleAutoApplyCycle(tabId, lane, opts) {
     }
 
     // Step 2: Match jobs
-    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    const apiUrl = apiUrlFrom(config);
     const matchRes = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       body: JSON.stringify({ jobs, lane, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
@@ -1116,7 +1151,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const { config } = await chrome.storage.local.get('config');
-        const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+        const apiUrl = apiUrlFrom(config);
         const res = await apiFetch(`${apiUrl}/api/extension/applications`);
         if (!res.ok) { sendResponse({ applications: [], error: 'HTTP ' + res.status }); return; }
         sendResponse(await res.json());
@@ -1293,7 +1328,7 @@ async function handleMatchJobs(jobs) {
   }
 
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   try {
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
@@ -1323,7 +1358,7 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
   }
 
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   // Hoisted out of the try so the catch below can still book a stream that died
   // after the server had already paid for the model calls. `booked` makes the
@@ -1440,7 +1475,7 @@ async function handleGenerateApplication(job, formFields, options = {}, onProgre
 
 async function handleSaveJob(job) {
   const { config } = await chrome.storage.local.get('config');
-  const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+  const apiUrl = apiUrlFrom(config);
 
   try {
     const res = await apiFetch(`${apiUrl}/api/saved-jobs`, {
@@ -1594,7 +1629,7 @@ async function handleScanMultiplePages(baseUrl, maxPages, mainTabId) {
     } catch {}
 
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || 'https://jobs.dlvasolutions.com';
+    const apiUrl = apiUrlFrom(config);
     const res = await apiFetch(`${apiUrl}/api/extension/match-jobs`, {
       method: 'POST',
       body: JSON.stringify({ jobs: allJobs, profile: config?.profile || {}, min_score: config?.minApplyScore ?? DEFAULT_CONFIG.minApplyScore }),
@@ -1739,7 +1774,7 @@ async function queueManual(job, requirements, application) {
 
   try {
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    const apiUrl = apiUrlFrom(config);
     await apiFetch(`${apiUrl}/api/extension/log-application`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1769,7 +1804,7 @@ async function logApplication(job, application) {
   // it sends and the end-of-day report has nothing to show.
   try {
     const { config } = await chrome.storage.local.get('config');
-    const apiUrl = config?.apiUrl || DEFAULT_CONFIG.apiUrl;
+    const apiUrl = apiUrlFrom(config);
     await apiFetch(`${apiUrl}/api/extension/log-application`, {
       method: 'POST',
       body: JSON.stringify({
