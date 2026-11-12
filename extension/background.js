@@ -13,7 +13,7 @@ const DEFAULT_CONFIG = {
   // so it is worth being plain about what still protects him when it is off:
   // posts that ask for a Loom, a video, a code test or a call never send, they
   // are drafted and parked in the manual queue (detectManualRequirements), the
-  // scheduled cycle only runs inside activeStartHour..activeEndHour, the daily
+  // scheduled cycle only runs inside the activeWindows hours, the daily
   // Apply Point budget caps the volume, and an explicit prohibition in the post
   // blocks the application outright. Flipping "Review Before Sending" back on
   // in the popup restores one-by-one approval at any time.
@@ -27,14 +27,12 @@ const DEFAULT_CONFIG = {
   // the real limit. Defaults keep us inside one day's income.
   dailyApBudget: 10,
   maxAppliesPerDay: 10,
-  // The hours the scheduled cycle is allowed to run, in the user's own local
-  // time (the browser's clock, which is his). Employers read their inbox during
-  // their day, and an application that lands at 3am is buried by morning; this
-  // also keeps the automation off the board while he is asleep and cannot see
-  // what it is doing. Inclusive of the start hour, exclusive of the end, so
-  // 8 to 22 means the last cycle can start at 21:59.
-  activeStartHour: 8,
-  activeEndHour: 22,
+  // When the scheduled cycle may run, in his own local time (the browser's
+  // clock). Two windows, not one span: he wants the morning before employers
+  // start reading and the evening when they catch up, and nothing in the dead
+  // middle of the day. Each is [start, end), so [7, 11] means the last cycle of
+  // the morning can start at 10:59.
+  activeWindows: [[7, 11], [20, 23]],
   apReserve: 0,
   minApplyScore: 60,
   profile: {
@@ -591,26 +589,38 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
-// Reads the window, clamped to real hours. An inverted or malformed pair falls
-// back to the default rather than locking the automation out of the whole day.
+// The windows, cleaned. Anything malformed, inverted or out of range is
+// dropped, and if that leaves nothing we fall back to the defaults rather than
+// locking applying out of the entire day, which is the failure worth avoiding.
 function activeHours(config) {
-  const int = (v, dflt) => {
+  const hour = (v) => {
     const n = parseInt(v, 10);
-    return Number.isFinite(n) && n >= 0 && n <= 24 ? n : dflt;
+    return Number.isFinite(n) && n >= 0 && n <= 24 ? n : null;
   };
-  let start = int(config?.activeStartHour, DEFAULT_CONFIG.activeStartHour);
-  let end = int(config?.activeEndHour, DEFAULT_CONFIG.activeEndHour);
-  if (start >= end) {
-    start = DEFAULT_CONFIG.activeStartHour;
-    end = DEFAULT_CONFIG.activeEndHour;
+  const out = [];
+  const raw = config && config.activeWindows;
+  if (Array.isArray(raw)) {
+    for (const w of raw) {
+      if (!Array.isArray(w) || w.length !== 2) continue;
+      const start = hour(w[0]);
+      const end = hour(w[1]);
+      if (start === null || end === null || start >= end) continue;
+      out.push([start, end]);
+    }
   }
-  return { start, end };
+  return out.length ? out : DEFAULT_CONFIG.activeWindows;
 }
 
 function withinActiveHours(config, now = new Date()) {
-  const { start, end } = activeHours(config);
   const h = now.getHours();
-  return h >= start && h < end;
+  return activeHours(config).some(([start, end]) => h >= start && h < end);
+}
+
+// "07:00-11:00 and 20:00-23:00", for the stand-down note.
+function activeHoursText(config) {
+  return activeHours(config)
+    .map(([start, end]) => `${pad2(start)}:00-${pad2(end)}:00`)
+    .join(' and ');
 }
 
 // Initialize on install / update
@@ -679,11 +689,10 @@ async function runAutoApplyCycle(trigger, opts) {
       // hour: a cycle he ran by hand at 05:10 was erased by the 05:12 alarm,
       // and the popup then claimed nothing had happened. A stand-down is not an
       // outcome; it goes somewhere of its own.
-      const { start, end } = activeHours(config);
       await chrome.storage.local.set({
         lastStandDown: {
           at: new Date().toISOString(),
-          detail: `Applying runs ${pad2(start)}:00 to ${pad2(end)}:00 your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`,
+          detail: `Applying runs ${activeHoursText(config)} your time. It is ${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())} now.`,
         },
       });
       return;
