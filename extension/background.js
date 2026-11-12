@@ -2,12 +2,22 @@
 
 const DEFAULT_CONFIG = {
   apiUrl: 'https://jobs.dlvasolutions.com',
-  autoApply: false,
+  // Both of these are what he asked the build to do: find and apply without
+  // him driving it. A fresh install therefore comes up already running, since
+  // onInstalled seeds storage from here and a config he never opens would
+  // otherwise sit idle.
+  autoApply: true,
   scanInterval: 10,
-  // ON by default, and the code that reads it says so too
-  // (`reviewBeforeSend !== false`). It was only ever missing from here, which
-  // made the default send path look like the exceptional one.
-  reviewBeforeSend: true,
+  // OFF by his instruction: the whole point is applying without his attention.
+  // This is the one switch that sends real mail to real employers unattended,
+  // so it is worth being plain about what still protects him when it is off:
+  // posts that ask for a Loom, a video, a code test or a call never send, they
+  // are drafted and parked in the manual queue (detectManualRequirements), the
+  // scheduled cycle only runs inside activeStartHour..activeEndHour, the daily
+  // Apply Point budget caps the volume, and an explicit prohibition in the post
+  // blocks the application outright. Flipping "Review Before Sending" back on
+  // in the popup restores one-by-one approval at any time.
+  reviewBeforeSend: false,
   // The four kinds of job worth applying to, searched one per cycle.
   lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
   // A job post is a drop: the value is in being early. Anything older than this
