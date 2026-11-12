@@ -262,6 +262,7 @@ export function weakSubject(subject: string, applicantName?: string, jobTitle?: 
 const OWN_WORK = [
   'whitelabelai', 'dark sync', 'darksync', 'forgeai', 'forge ai', 'agentforge',
   'dcte', 'h.u.b', 'hub', 'hanap', 'dlvasolutions', 'dlva', 'nocturne',
+  'rallycam', 'rally cam',
   'pickleball', 'job finder', 'jobfinder',
 ];
 
@@ -337,6 +338,8 @@ Learn HOW they write: their tone, how direct and friendly they are, their senten
 - Same personality and natural word choices, so it clearly sounds like the same person.
 - Correct grammar, spelling and punctuation. Do NOT copy their grammar mistakes or run-on sentences.
 - Professional enough for a hiring manager, but still sounding like a real person, not a template and not AI.
+- MATCH THEIR CONFIDENCE. If they write like someone who knows they can do the work, write that way too. State what they have built plainly and let it carry the weight on its own. No hedging ("I believe I'd be", "I think I could", "I hope to", "if given the chance"), no asking permission, no shrinking. Confident is not boastful: never claim more than the facts support, just stop apologising for what is already there.
+- If their own grammar is simple, keep the simplicity. Short declarative sentences in plain words read as confident; long ones with subordinate clauses read as padding. Simple is the voice, not a weakness to dress up.
 - Never copy their sentences.
 <writing_samples>
 ${p.writing_samples.slice(0, 5000)}
@@ -527,6 +530,14 @@ const AI_TELLS: [RegExp, string][] = [
   [/\b(?:while|although|though|admittedly) i (?:haven'?t|have not|lack|am not|'?m not)\b/i, 'opens a concession with "while/although I haven\'t"'],
   [/\bi'?m not (?:a|an|really a|traditionally a)\b[^.!?\n]{0,45}\b(?:but|however)\b/i, 'calls himself not-a-X before the comma'],
   [/\bmy (?:closest|nearest) (?:match|thing|experience) (?:i can point to|would be)\b/i, 'hedges with "the closest I can point to"'],
+  // Hedges. Weaker than the self-disqualifying lines above, same effect: they
+  // ask the employer to take a chance rather than telling them what they get.
+  [/\bi (?:believe|think|feel)(?: that)? i(?:'d| would| could| can| am|'m)\b/i, 'hedges with "I believe/think I would be..."'],
+  [/\bi(?:'m| am) (?:fairly|pretty|quite|reasonably|somewhat) (?:confident|sure|certain)\b/i, 'hedges with "I\'m fairly confident"'],
+  [/\bif (?:given|you give me) the (?:chance|opportunity)\b/i, 'begs with "if given the chance"'],
+  [/\bi hope (?:to |i can |that i |i'?d )/i, 'hedges with "I hope to/I hope I can"'],
+  [/\bi (?:may|might) not (?:have|be)\b/i, 'opens a concession with "I may not have"'],
+  [/\bi would be (?:a )?(?:good|great|strong|perfect|solid) fit\b/i, 'claims "I would be a good fit" instead of showing it'],
   [/\b(furthermore|moreover|that being said|additionally,)\b/i, 'uses essay connectors (furthermore/moreover...)'],
   [/\bnot only\b[^.]{0,80}\bbut also\b/i, 'uses "not only... but also"'],
   [/\bin today's\b/i, 'says "in today\'s..."'],

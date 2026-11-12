@@ -20,6 +20,13 @@ export const ROLE_LABELS: Record<RoleKey, string> = {
 export type RoleHighlights = Partial<Record<RoleKey, string>> & {
   _source?: string;
   _edited?: boolean;
+  // Hash of the portfolio PAGE TEXT these highlights were generated from.
+  // _source only covers the portfolio URL, so rewriting the page at the same
+  // address left the highlights looking current forever.
+  _portfolio?: string;
+  // When the page was last compared, epoch ms. Bounds the re-check to one
+  // fetch a day instead of one per application.
+  _checked?: number;
 };
 
 // --- Detecting which kind of role a job is ---------------------------------

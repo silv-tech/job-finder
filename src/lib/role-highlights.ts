@@ -27,6 +27,10 @@ function fingerprint(p: ProfileSource): string {
     .slice(0, 16);
 }
 
+function hashText(t: string): string {
+  return createHash('sha256').update(t || '').digest('hex').slice(0, 16);
+}
+
 export function highlightsAreStale(p: ProfileSource): boolean {
   const h = p.role_highlights;
   if (h?._edited) return false; // hand-edited: never overwrite automatically
@@ -109,7 +113,11 @@ ${p.bio || ''}
   const parsed = parseJsonResponse<Record<string, unknown>>(extractText(message) || '');
   if (!parsed) throw new Error('Could not generate role examples, please try again');
 
-  const result: RoleHighlights = { _source: fingerprint(p) };
+  const result: RoleHighlights = {
+    _source: fingerprint(p),
+    _portfolio: hashText(portfolio),
+    _checked: Date.now(),
+  };
   for (const k of ROLE_KEYS) {
     const v = parsed[k];
     if (typeof v === 'string' && v.trim()) result[k] = stripAiTells(v.trim());
@@ -127,6 +135,7 @@ ${p.bio || ''}
 // call an hour per process instead of one per application.
 const attempted = new Map<string, number>();
 const ATTEMPT_TTL_MS = 60 * 60 * 1000;
+const PORTFOLIO_RECHECK_MS = 24 * 60 * 60 * 1000;
 
 export async function ensureRoleHighlights(
   userId: string,
@@ -134,7 +143,30 @@ export async function ensureRoleHighlights(
   meter?: CostMeter
 ): Promise<RoleHighlights> {
   const current = p.role_highlights || {};
-  if (!highlightsAreStale(p)) return current;
+
+  // The profile fields are unchanged, but the portfolio PAGE may have been
+  // rewritten at the same URL, which _source cannot see. Re-read it at most
+  // once a day and regenerate only when the text actually moved.
+  if (!highlightsAreStale(p)) {
+    if (current._edited) return current;
+    const checkedAt = current._checked || 0;
+    if (Date.now() - checkedAt < PORTFOLIO_RECHECK_MS) return current;
+
+    const text = await portfolioText(p.portfolio_url);
+    if (!text) return current; // fetch failed: keep what we have, retry tomorrow
+    const seen = hashText(text);
+    if (seen === current._portfolio) {
+      // Same page. Stamp the check so we do not refetch until tomorrow.
+      const stamped = { ...current, _checked: Date.now() };
+      await getServiceClient()
+        .from('profiles')
+        .update({ role_highlights: stamped })
+        .eq('user_id', userId);
+      return stamped;
+    }
+    console.log('[role-highlights] portfolio page changed, regenerating');
+    // fall through and regenerate against the new page
+  }
 
   const key = `${userId}:${fingerprint(p)}`;
   const last = attempted.get(key);
