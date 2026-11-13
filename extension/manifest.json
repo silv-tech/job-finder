@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Finder Auto-Apply",
-  "version": "1.14.1",
+  "version": "1.15.0",
   "description": "Automatically scrape job listings and apply with AI-generated applications",
   "permissions": [
     "activeTab",
@@ -26,8 +26,12 @@
         "https://v2.onlinejobs.ph/*",
         "https://onlinejobs.ph/*"
       ],
-      "js": ["content-scripts/onlinejobs.js"],
-      "css": ["content-scripts/overlay.css"]
+      "js": [
+        "content-scripts/onlinejobs.js"
+      ],
+      "css": [
+        "content-scripts/overlay.css"
+      ]
     }
   ],
   "action": {
