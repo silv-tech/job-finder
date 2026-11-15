@@ -674,6 +674,27 @@ chrome.runtime.onStartup.addListener(() => {
   ensureAlarms();
 });
 
+// Which build is actually running, written the moment the worker starts.
+//
+// Three separate code changes this week were merged, deployed and believed
+// live while Chrome was still serving a cached service worker, and each time
+// the only way to tell was to wait for behaviour that depended on the change:
+// a stand-down outside the new hours, a log entry on the next generation. That
+// is a slow and sometimes impossible check, and twice it meant reporting a fix
+// as shipped when it was not. Reading one key answers it instantly instead.
+async function stampBuild() {
+  try {
+    const version = chrome.runtime.getManifest().version;
+    await chrome.storage.local.set({
+      build: { version, at: new Date().toISOString(), startedAt: Date.now() },
+    });
+    console.log('[JF] build', version, 'service worker started');
+  } catch (err) {
+    console.warn('[JF] could not stamp the build', err);
+  }
+}
+stampBuild();
+
 // Also check whenever the service worker wakes up
 ensureAlarms();
 migrateLanes();
