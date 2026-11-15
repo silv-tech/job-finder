@@ -1055,6 +1055,14 @@ async function applyToJobs(jobs) {
           }
         }
 
+        if (clickResult?.post_unavailable) {
+          // Taken down between the scan and the apply. It stays marked so the
+          // next cycle does not waste a tab on it again.
+          await markApplied(job.apply_url);
+          outcomes.push('post no longer available');
+          continue;
+        }
+
         if (clickResult?.already_applied) {
           await markApplied(job.apply_url);
           outcomes.push('already applied');
@@ -1067,6 +1075,14 @@ async function applyToJobs(jobs) {
 
         if (clickResult?.navigated) {
           await waitForContentScript(bgTab.id, (r) => r.fields > 0 && r.hasTextarea);
+        } else if (clickResult && clickResult.found === false) {
+          // No apply control on the page. The old code fell through to the fill
+          // anyway, which reported "the page has no textarea" and, worse, had
+          // already marked the job applied. Hand it back instead: the post may
+          // simply have rendered slowly or changed shape.
+          await unmarkSeen(job.apply_url);
+          outcomes.push('no apply button on the page');
+          continue;
         }
 
         // Point of no return: record before sending
@@ -1090,9 +1106,11 @@ async function applyToJobs(jobs) {
         else if (fillResult?.success) outcomes.push('sent');
         else {
           outcomes.push('fill failed: ' + (fillResult?.error || 'unknown'));
-          // Nothing was sent and no point was spent, so this post is still
-          // worth applying to. Without this it stayed marked and was never
-          // seen again.
+          // Nothing was sent and no point was spent, so give the post back.
+          // BOTH lists have to be cleared: appliedUrls is the one applyToJobs
+          // filters on, so clearing only seenUrls left the job burned anyway,
+          // which is what the previous attempt at this fix missed.
+          await unmarkApplied(job.apply_url);
           await unmarkSeen(job.apply_url);
         }
 

@@ -99,6 +99,16 @@ console.log('[JF] Content script loaded on:', window.location.href);
   });
 
   async function handleClickApplyButton() {
+    // A post can be taken down between the scan and the apply: the employer
+    // fills it, or the account is deactivated or banned. The page then has no
+    // apply control and no form, which used to surface as "the page has no
+    // textarea" after the job had already been marked applied. Catch it first
+    // and say so, so the cycle reports a dead post instead of a fill failure.
+    const bodyText = document.body.innerText || '';
+    if (/job unavailable|no longer (visible|available)|has been (deactivated|banned|removed)|this job (post )?(has been (closed|filled|removed)|is closed)/i.test(bodyText)) {
+      return { found: false, navigated: false, post_unavailable: true, description: '' };
+    }
+
     // Check if already applied
     const pageElements = document.querySelectorAll('a, button, span, div');
     for (const el of pageElements) {
@@ -121,14 +131,28 @@ console.log('[JF] Content script loaded on:', window.location.href);
       fullDescription = main.textContent?.trim()?.slice(0, 8000) || '';
     }
 
-    // Find the apply button
+    // Find the apply button. This used to take the FIRST element in DOM order
+    // whose text merely contained "apply", across every anchor and button on
+    // the page, so "Apply Points", "How to apply" or a nav item could win and
+    // be navigated to. Score them instead and take the best.
     const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
+    const NOT_APPLY = /apply points?|how to apply|apply filter|applying|reapply|apply here to|terms|faq/i;
     let applyBtn = null;
+    let bestScore = 0;
     for (const btn of allButtons) {
-      const text = btn.textContent?.trim()?.toLowerCase() || btn.value?.toLowerCase() || '';
-      if (text.includes('apply') && !text.includes('applied')) {
+      const raw = (btn.textContent || btn.value || '').trim().replace(/\s+/g, ' ');
+      const text = raw.toLowerCase();
+      if (!text.includes('apply') || text.includes('applied')) continue;
+      if (NOT_APPLY.test(text)) continue;
+      if (btn.offsetParent === null) continue; // hidden
+      let score = 1;
+      if (/^apply( now| for this job| to this job| for this position)?$/.test(text)) score = 10;
+      else if (/^apply\b/.test(text)) score = 6;
+      if (text.length > 40) score -= 2; // a paragraph that happens to say "apply"
+      if (btn.tagName === 'BUTTON' || btn.tagName === 'INPUT') score += 1;
+      if (score > bestScore) {
+        bestScore = score;
         applyBtn = btn;
-        break;
       }
     }
 
