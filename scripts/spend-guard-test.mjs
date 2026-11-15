@@ -40,5 +40,14 @@ check('log records kind and outcome', /\{ at: new Date\(\)\.toISOString\(\), url
 check('log is capped', /genLog\.slice\(0, 200\)/.test(bg));
 check('logging can never break a generation', /\}\)\.catch\(\(\) => \{\}\);/.test(bg.slice(bg.indexOf('function logGeneration'), bg.indexOf('function recordGeneration'))));
 
+console.log('\n--- the build stamp, so a reload can be verified in one read ---');
+check('stamps on worker start', /stampBuild\(\);/.test(bg));
+check('reads the real manifest version', /chrome\.runtime\.getManifest\(\)\.version/.test(bg));
+check('writes a build key', /chrome\.storage\.local\.set\(\{[\s\S]{0,60}build: \{ version/.test(bg));
+check('cannot break startup if it throws', /stampBuild[\s\S]{0,420}catch \(err\)/.test(bg));
+const stampAt = bg.indexOf('stampBuild();');
+const alarmsAt = bg.indexOf('ensureAlarms();', stampAt);
+check('runs before the first alarm is scheduled', stampAt > -1 && alarmsAt > stampAt);
+
 console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILURE(S)`);
 process.exit(bad ? 1 : 0);
