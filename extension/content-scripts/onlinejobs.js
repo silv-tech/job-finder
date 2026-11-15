@@ -196,6 +196,15 @@ console.log('[JF] Content script loaded on:', window.location.href);
       job.description = document.body.textContent?.slice(0, 6000) || '';
     }
 
+    // Check the form can actually take a message BEFORE paying for one. The
+    // order used to be write-then-discover: generateApplication ran, the model
+    // was billed, and only then did fillFormFields find nothing to put the
+    // letter in. Five of today's paid drafts died exactly there. The test is
+    // the same one the fallback uses, so if this passes the fill will too.
+    if (!messageTargets().length) {
+      return { success: false, error: 'No message box on the page, nothing written' };
+    }
+
     const application = await chrome.runtime.sendMessage({
       action: 'generateApplication', job, formFields,
     });
@@ -948,6 +957,25 @@ console.log('[JF] Content script loaded on:', window.location.href);
     return null;
   }
 
+  // Every visible, writable textarea that is not the contact box, biggest
+  // first. The biggest one is the message box on every variant seen so far.
+  // Used by the pre-flight AND the fill fallback, so the check that decides
+  // whether to spend money is the same check that does the filling.
+  function messageTargets() {
+    const out = [...document.querySelectorAll('textarea')].filter((ta) => {
+      if (ta.disabled || ta.readOnly) return false;
+      if (ta.offsetParent === null) return false; // hidden
+      const label = (
+        ta.closest('label')?.textContent
+        || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent
+        || ta.name || ta.placeholder || ''
+      ).toLowerCase();
+      return !label.includes('contact');
+    });
+    out.sort((a, b) => (b.clientHeight * b.clientWidth) - (a.clientHeight * a.clientWidth));
+    return out;
+  }
+
   function fillFormFields(fields, application) {
     const filled = [];
 
@@ -1007,18 +1035,7 @@ console.log('[JF] Content script loaded on:', window.location.href);
     // and paid for. A pre-filled box is now overwritten; nothing a board
     // pre-fills is worth more than the application.
     if (!filled.includes('message') && application.cover_letter) {
-      const candidates = [...document.querySelectorAll('textarea')].filter((ta) => {
-        if (ta.disabled || ta.readOnly) return false;
-        if (ta.offsetParent === null) return false; // hidden
-        const label = (
-          ta.closest('label')?.textContent
-          || document.querySelector(`label${attrSelector('for', ta.id)}`)?.textContent
-          || ta.name || ta.placeholder || ''
-        ).toLowerCase();
-        return !label.includes('contact');
-      });
-      // The biggest visible box is the message box on every variant seen so far.
-      candidates.sort((a, b) => (b.clientHeight * b.clientWidth) - (a.clientHeight * a.clientWidth));
+      const candidates = messageTargets();
       if (candidates.length) {
         setInputValue(candidates[0], application.cover_letter);
         filled.push('message');

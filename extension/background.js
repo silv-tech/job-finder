@@ -305,6 +305,43 @@ async function applyGeneration(cost) {
 // and never sent: recording at the send would have shown $0 while the credits
 // drained, which is the exact surprise this ledger exists to prevent. A
 // regenerate ("Make it better") is another paid generation and counts as one.
+// A paid draft, kept briefly against its post. applyToJobs retries
+// autoFillAndSend when the message to the content script throws, and the
+// content script asks for a NEW generation on each attempt, so a port that
+// died after the model had already answered charged the same post twice. The
+// retry reuses what was bought instead. Short window on purpose: this is for
+// retries within one apply, not a cache across cycles.
+const DRAFT_MEMO_MS = 5 * 60 * 1000;
+const draftMemo = new Map();
+
+function putDraftMemo(url, application) {
+  if (!url || !application) return;
+  draftMemo.set(url, { at: Date.now(), application });
+  if (draftMemo.size > 50) draftMemo.delete(draftMemo.keys().next().value);
+}
+
+function takeDraftMemo(url) {
+  if (!url) return null;
+  const hit = draftMemo.get(url);
+  if (!hit) return null;
+  if (Date.now() - hit.at > DRAFT_MEMO_MS) {
+    draftMemo.delete(url);
+    return null;
+  }
+  return hit.application;
+}
+
+// Every generation, with what prompted it, so the gap between jobs attempted
+// and messages paid for can be read off instead of reasoned about.
+function logGeneration(url, kind, outcome) {
+  const slug = (url || '(no url)').split('/').pop();
+  console.log(`[JF][gen] ${kind} ${slug} -> ${outcome}`);
+  chrome.storage.local.get('genLog').then(({ genLog = [] }) => {
+    genLog.unshift({ at: new Date().toISOString(), url: url || '', kind, outcome });
+    return chrome.storage.local.set({ genLog: genLog.slice(0, 200) });
+  }).catch(() => {});
+}
+
 function recordGeneration(cost) {
   return queueLedger(() => applyGeneration(cost));
 }
@@ -1192,7 +1229,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const onProgress = typeof tabId === 'number'
       ? (phase) => { chrome.tabs.sendMessage(tabId, { action: 'generateProgress', phase }).catch(() => {}); }
       : undefined;
-    handleGenerateApplication(message.job, message.formFields, message.options, onProgress).then(sendResponse);
+    (async () => {
+      const url = message.job && message.job.apply_url;
+      // A reworded draft is a deliberate second write; everything else for the
+      // same post inside the memo window is a retry we already paid for.
+      const rework = !!(message.options && (message.options.improve || message.options.avoid));
+      const hit = !rework && takeDraftMemo(url);
+      if (hit) {
+        logGeneration(url, 'memo-hit', 'reused the draft already paid for');
+        sendResponse(hit);
+        return;
+      }
+      const res = await handleGenerateApplication(message.job, message.formFields, message.options, onProgress);
+      logGeneration(url, rework ? 'rework' : 'fresh', res && res.error ? ('error: ' + res.error) : (res && res.manual_required ? 'manual' : 'ok'));
+      if (!res || res.error) {
+        sendResponse(res);
+        return;
+      }
+      putDraftMemo(url, res);
+      sendResponse(res);
+    })();
     return true;
   }
 
