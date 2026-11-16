@@ -20,9 +20,16 @@ const DEFAULT_CONFIG = {
   reviewBeforeSend: false,
   // The four kinds of job worth applying to, searched one per cycle.
   lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
-  // A job post is a drop: the value is in being early. Anything older than this
-  // has already been buried by other applicants, so don't spend a point on it.
-  maxJobAgeHours: 24,
+  // A job post is a drop: the value is in being early. A day-old post has
+  // already been buried by other applicants, so this is an hour, not a day.
+  // The board stamps every post to the second (data-temp="2026-11-17 03:53:00"),
+  // so an hour is measurable rather than approximate.
+  maxJobAgeHours: 1,
+  // With an hour-wide window an undated post cannot be shown to be fresh, and
+  // is far more likely stale than minutes old, so it is skipped. That is the
+  // opposite of the right call when the window was a day, which is why it is
+  // a setting rather than a constant.
+  skipUndatedPosts: true,
   // Apply Points refill at 10 a day and the balance caps at 60, so spending is
   // the real limit. Defaults keep us inside one day's income.
   dailyApBudget: 10,
@@ -32,7 +39,7 @@ const DEFAULT_CONFIG = {
   // start reading and the evening when they catch up, and nothing in the dead
   // middle of the day. Each is [start, end), so [7, 11] means the last cycle of
   // the morning can start at 10:59.
-  activeWindows: [[7, 11], [20, 23]],
+  activeWindows: [[7, 12], [19, 24]],
   apReserve: 0,
   minApplyScore: 60,
   profile: {
@@ -437,11 +444,12 @@ function jobAgeHours(posted_at) {
 
 // Drop the stale ones. A post with no timestamp is kept: better to score it
 // than to silently discard a job that might be minutes old.
-function filterFresh(jobs, maxAgeHours) {
+function filterFresh(jobs, maxAgeHours, skipUndated) {
   if (!maxAgeHours) return jobs;
   return jobs.filter((j) => {
     const age = jobAgeHours(j.posted_at);
-    return age === null || age <= maxAgeHours;
+    if (age === null) return !skipUndated;
+    return age <= maxAgeHours;
   });
 }
 
@@ -674,6 +682,26 @@ chrome.runtime.onStartup.addListener(() => {
   ensureAlarms();
 });
 
+// A stored config overrides the defaults, so changing a default alone changes
+// nothing for a profile that already has the old value written. This moves the
+// one setting whose policy changed, and only from the exact old default, so a
+// number chosen deliberately later is never overwritten.
+const OLD_DEFAULT_JOB_AGE_HOURS = 24;
+
+async function migrateFreshnessPolicy() {
+  try {
+    const { config } = await chrome.storage.local.get('config');
+    if (!config) return;
+    if (config.maxJobAgeHours !== OLD_DEFAULT_JOB_AGE_HOURS) return;
+    await chrome.storage.local.set({
+      config: { ...config, maxJobAgeHours: DEFAULT_CONFIG.maxJobAgeHours },
+    });
+    console.log('[JF] freshness policy moved from 24h to', DEFAULT_CONFIG.maxJobAgeHours + 'h');
+  } catch (err) {
+    console.warn('[JF] could not move the freshness policy', err);
+  }
+}
+
 // Which build is actually running, written the moment the worker starts.
 //
 // Three separate code changes this week were merged, deployed and believed
@@ -694,6 +722,7 @@ async function stampBuild() {
   }
 }
 stampBuild();
+migrateFreshnessPolicy();
 
 // Also check whenever the service worker wakes up
 ensureAlarms();
@@ -818,8 +847,9 @@ async function handleAutoApplyCycle(tabId, lane, opts) {
     // Only look at posts we have not already scored in an earlier cycle, and
     // only while they are still fresh enough to be worth a point.
     const maxAge = config?.maxJobAgeHours ?? DEFAULT_CONFIG.maxJobAgeHours;
+    const skipUndated = config?.skipUndatedPosts ?? DEFAULT_CONFIG.skipUndatedPosts;
     const unseen = await filterUnseen(allJobs);
-    const jobs = filterFresh(unseen, maxAge);
+    const jobs = filterFresh(unseen, maxAge, skipUndated);
     if (jobs.length === 0) {
       await recordCycle('Nothing new', `${allJobs.length} on the page, all already seen or older than ${maxAge}h. Try "Re-check older posts".`);
       return;
