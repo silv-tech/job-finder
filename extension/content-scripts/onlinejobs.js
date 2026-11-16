@@ -30,7 +30,13 @@ console.log('[JF] Content script loaded on:', window.location.href);
         ready: document.readyState !== 'loading',
         url: window.location.href,
         fields,
-        hasTextarea: !!document.querySelector('textarea'),
+        // A USABLE message box, not just any textarea. A job page carries two
+        // hidden ones before the apply form exists at all, the Bookmark note
+        // and the Report box, both 0x0 and display:none. Reporting those as
+        // readiness let the apply proceed against a page whose real form had
+        // not rendered: the fill then found nothing, and before the pre-flight
+        // existed a message had already been written and paid for.
+        hasTextarea: messageTargets().length > 0,
       });
       return true;
     }
@@ -180,7 +186,9 @@ console.log('[JF] Content script loaded on:', window.location.href);
   async function waitForFormFields(timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
     let fields = detectFormFields();
-    while (Date.now() < deadline && (fields.length === 0 || !document.querySelector('textarea'))) {
+    // Same reason: waiting on "any textarea" returns immediately on a page
+    // whose only textareas are the hidden Bookmark and Report popups.
+    while (Date.now() < deadline && (fields.length === 0 || messageTargets().length === 0)) {
       await sleep(100);
       fields = detectFormFields();
     }
