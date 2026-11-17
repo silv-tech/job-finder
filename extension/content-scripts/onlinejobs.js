@@ -104,6 +104,42 @@ console.log('[JF] Content script loaded on:', window.location.href);
     }
   });
 
+  // "Apply", not "Apply Points", "How to apply" or "Apply filters". Scored
+  // rather than first-match, because taking the first element whose text
+  // merely contained "apply" meant a nav link could win and be navigated to.
+  const NOT_APPLY = /apply points?|how to apply|apply filter|applying|reapply|apply here to|terms|faq/i;
+
+  function findApplyButton() {
+    let best = null;
+    let bestScore = 0;
+    for (const btn of document.querySelectorAll('a, button, input[type="submit"]')) {
+      const text = (btn.textContent || btn.value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (!text.includes('apply') || text.includes('applied')) continue;
+      if (NOT_APPLY.test(text)) continue;
+      if (btn.offsetParent === null) continue; // hidden
+      let score = 1;
+      if (/^apply( now| for this job| to this job| for this position)?$/.test(text)) score = 10;
+      else if (/^apply\b/.test(text)) score = 6;
+      if (text.length > 40) score -= 2; // a paragraph that happens to say "apply"
+      if (btn.tagName === 'BUTTON' || btn.tagName === 'INPUT') score += 1;
+      if (score > bestScore) {
+        bestScore = score;
+        best = btn;
+      }
+    }
+    return best;
+  }
+
+  async function waitForApplyButton(timeoutMs = 10000) {
+    const deadline = Date.now() + timeoutMs;
+    let btn = findApplyButton();
+    while (!btn && Date.now() < deadline) {
+      await sleep(150);
+      btn = findApplyButton();
+    }
+    return btn;
+  }
+
   async function handleClickApplyButton() {
     // A post can be taken down between the scan and the apply: the employer
     // fills it, or the account is deactivated or banned. The page then has no
@@ -137,30 +173,13 @@ console.log('[JF] Content script loaded on:', window.location.href);
       fullDescription = main.textContent?.trim()?.slice(0, 8000) || '';
     }
 
-    // Find the apply button. This used to take the FIRST element in DOM order
-    // whose text merely contained "apply", across every anchor and button on
-    // the page, so "Apply Points", "How to apply" or a nav item could win and
-    // be navigated to. Score them instead and take the best.
-    const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
-    const NOT_APPLY = /apply points?|how to apply|apply filter|applying|reapply|apply here to|terms|faq/i;
-    let applyBtn = null;
-    let bestScore = 0;
-    for (const btn of allButtons) {
-      const raw = (btn.textContent || btn.value || '').trim().replace(/\s+/g, ' ');
-      const text = raw.toLowerCase();
-      if (!text.includes('apply') || text.includes('applied')) continue;
-      if (NOT_APPLY.test(text)) continue;
-      if (btn.offsetParent === null) continue; // hidden
-      let score = 1;
-      if (/^apply( now| for this job| to this job| for this position)?$/.test(text)) score = 10;
-      else if (/^apply\b/.test(text)) score = 6;
-      if (text.length > 40) score -= 2; // a paragraph that happens to say "apply"
-      if (btn.tagName === 'BUTTON' || btn.tagName === 'INPUT') score += 1;
-      if (score > bestScore) {
-        bestScore = score;
-        applyBtn = btn;
-      }
-    }
+    // Wait for it. The tab is considered ready at readyState "interactive",
+    // which is the DOM parsed and nothing more, and this board renders its
+    // apply control after that. Reading the DOM once at that moment reported
+    // "no apply button on the page" three times today on posts that plainly
+    // have one. Same mistake as trusting the first textarea: the page was not
+    // finished, not wrong.
+    let applyBtn = await waitForApplyButton();
 
     if (!applyBtn) {
       return { found: false, navigated: false, description: fullDescription };
@@ -1545,16 +1564,10 @@ console.log('[JF] Content script loaded on:', window.location.href);
     updateApplyStatus('Looking for apply button...');
     let formFields = detectFormFields();
 
-    // Find the apply button — OnlineJobs.ph uses various formats
-    let applyBtn = null;
-    const allButtons = document.querySelectorAll('a, button, input[type="submit"]');
-    for (const btn of allButtons) {
-      const text = btn.textContent?.trim()?.toLowerCase() || btn.value?.toLowerCase() || '';
-      if (text.includes('apply') && !text.includes('applied')) {
-        applyBtn = btn;
-        break;
-      }
-    }
+    // The same finder the automatic path uses. This used to be its own copy of
+    // the original first-match scan, so "Apply Points" could win here even
+    // after that was fixed on the other path. One definition, one behaviour.
+    const applyBtn = await waitForApplyButton();
 
     if (applyBtn && formFields.length === 0) {
       updateApplyStatus('Saving job data...');

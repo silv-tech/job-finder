@@ -63,5 +63,14 @@ check('clears appliedUrls (the list applyToJobs filters on)', fail.includes('unm
 check('clears seenUrls too', fail.includes('unmarkSeen('));
 check('an UNKNOWN outcome is still left marked', bg.includes("outcomes.push('no reply after send')") && !bg.slice(bg.indexOf("'no reply after send'") - 300, bg.indexOf("'no reply after send'")).includes('unmarkApplied'));
 
+console.log('\n--- the button must be WAITED for, not read once ---');
+const cs = src;
+check('there is a wait helper', /async function waitForApplyButton\(timeoutMs = \d+\)/.test(cs));
+check('it retries until a deadline', /while \(!btn && Date\.now\(\) < deadline\)/.test(cs));
+check('the handler awaits it', /let applyBtn = await waitForApplyButton\(\);/.test(cs));
+check('the finder is separate so it can be retried', /function findApplyButton\(\)/.test(cs));
+check('no single-pass scan left in the handler',
+  !/const allButtons = document\.querySelectorAll\('a, button, input\[type="submit"\]'\);/.test(cs));
+
 console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILURE(S)`);
 process.exit(bad ? 1 : 0);
