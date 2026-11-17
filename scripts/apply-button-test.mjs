@@ -72,5 +72,20 @@ check('the finder is separate so it can be retried', /function findApplyButton\(
 check('no single-pass scan left in the handler',
   !/const allButtons = document\.querySelectorAll\('a, button, input\[type="submit"\]'\);/.test(cs));
 
+console.log('\n--- signed out must be named, not reported as a missing button ---');
+const SIGNED_OUT = /please log ?in or register as jobseeker to apply/i;
+// verbatim from the live page on 2026-11-17 20:4x
+const WALL = 'Please login or register as jobseeker to apply for this job. TYPE OF WORK Any WAGE / SALARY $8/hour - $9/hour';
+check('the live login wall is detected', SIGNED_OUT.test(WALL));
+check('a normal post is not', !SIGNED_OUT.test('Apply for this job. We need a developer who can register changes in our CRM.'));
+check('content script returns signed_out', /signed_out: true/.test(src));
+check('it is checked before the apply-button search',
+  src.indexOf('signed_out: true') < src.indexOf('await waitForApplyButton()'));
+const bg2 = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
+check('background stops the whole cycle', /clickResult\?\.signed_out/.test(bg2));
+check('and records why', /Signed out of onlinejobs\.ph/.test(bg2));
+check('the job is handed back, not burned',
+  /signed_out\)[\s\S]{0,400}unmarkApplied\(job\.apply_url\)/.test(bg2));
+
 console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILURE(S)`);
 process.exit(bad ? 1 : 0);
