@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyExtensionAuth } from '@/lib/auth-api';
 import { getServiceClient } from '@/lib/supabase';
 import { detectRole } from '@/lib/roles';
-import { LANES, apForScore, bestLane, isLaneKey, scoreForLane } from '@/lib/lanes';
+import { LANES, apForScore, bestLane } from '@/lib/lanes';
 import { checkDisqualifiers } from '@/lib/disqualifiers';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { jobs, min_score, lane } = await req.json() as {
+    const { jobs, min_score } = await req.json() as {
       jobs: ScrapedJob[];
       min_score?: number;
       lane?: string;
@@ -53,21 +53,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ matches: [] });
     }
 
-    const laneKey = isLaneKey(lane) ? lane : null;
-    const threshold = typeof min_score === 'number'
-      ? min_score
-      : laneKey ? LANES[laneKey].minScore : 60;
+    // An explicit min_score from the caller wins. Otherwise the bar belongs to
+    // the lane the job matched, not the one that searched for it.
+    const explicitMin = typeof min_score === 'number' ? min_score : null;
 
     const background = await backgroundText(auth.userId);
 
     const matches = jobs.map((job) => {
-      const scored = laneKey ? scoreForLane(job, laneKey) : bestLane(job);
+      // The lane decides what we SEARCH for. It must not decide how a job is
+      // judged. Scoring against the searched lane cost a job 25 points for
+      // being a different one of his own roles (+15 instead of +40), so a
+      // strong automation post surfaced by a "javascript developer" search
+      // topped out around 51 against a bar of 60. The log is full of "best
+      // score 43", "51", "52" for exactly this reason, and two days produced
+      // no applications at all.
+      //
+      // He would take any of these five, so a job is judged on the lane it
+      // actually fits, which is what bestLane already returns. The requested
+      // lane still chooses the search terms and still rotates; that happens
+      // extension-side, which is why nothing here reads it any more.
+      const scored = bestLane(job);
 
       // A post that says "do not apply unless you have X" means it. Keyword
       // overlap cannot see that sentence, so it overrides the score outright:
       // applying anyway spends a point and annoys someone who asked us not to.
       const gate = checkDisqualifiers(job.description || '', background);
 
+      const threshold = explicitMin ?? LANES[scored.lane].minScore;
       const should_apply = scored.score >= threshold && !gate.blocked;
 
       return {
