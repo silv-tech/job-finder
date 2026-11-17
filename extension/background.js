@@ -20,11 +20,29 @@ const DEFAULT_CONFIG = {
   reviewBeforeSend: false,
   // The four kinds of job worth applying to, searched one per cycle.
   lanes: ['developer', 'automations', 'management', 'exec_assistant', 'general_va'],
-  // A job post is a drop: the value is in being early. A day-old post has
-  // already been buried by other applicants, so this is an hour, not a day.
-  // The board stamps every post to the second (data-temp="2026-11-17 03:53:00"),
-  // so an hour is measurable rather than approximate.
-  maxJobAgeHours: 1,
+  // A job post is a drop: the value is in being early. The board stamps every
+  // post to the second (data-temp="2026-11-17 03:53:00"), so this is measured,
+  // not approximate.
+  //
+  // Three hours, and the number came from counting the board rather than from
+  // taste. At one hour, measured live at 14:35 on 2026-11-17 across the eight
+  // lane searches, his four core categories had NOTHING eligible:
+  //
+  //   search                 <1h   <3h   <6h   newest
+  //   web developer            0     0     0   6.8h
+  //   full stack developer     0     1     4   2.0h
+  //   operations manager       0     1     8   1.5h
+  //   project manager          0     2     3   1.2h
+  //   executive assistant      2     5     7   1.0h
+  //   automation               3    13    30   0.3h
+  //   virtual assistant        4    20    30   0.25h
+  //
+  // Employers in his field post a few times a day, not a few times an hour, so
+  // an hour-wide window did not select for freshness, it selected his field
+  // out and left only the generic VA flood. A full day of it produced zero
+  // applications. Three hours restores every lane and is still early on a
+  // board where listings sit for days.
+  maxJobAgeHours: 3,
   // With an hour-wide window an undated post cannot be shown to be fresh, and
   // is far more likely stale than minutes old, so it is skipped. That is the
   // opposite of the right call when the window was a day, which is why it is
@@ -686,13 +704,16 @@ chrome.runtime.onStartup.addListener(() => {
 // nothing for a profile that already has the old value written. This moves the
 // one setting whose policy changed, and only from the exact old default, so a
 // number chosen deliberately later is never overwritten.
-const OLD_DEFAULT_JOB_AGE_HOURS = 24;
+// Every value this default has previously shipped with. A stored config that
+// still holds one of these is following the old policy rather than a choice,
+// so it moves; anything else was set deliberately and is left alone.
+const SUPERSEDED_JOB_AGE_HOURS = [24, 1];
 
 async function migrateFreshnessPolicy() {
   try {
     const { config } = await chrome.storage.local.get('config');
     if (!config) return;
-    if (config.maxJobAgeHours !== OLD_DEFAULT_JOB_AGE_HOURS) return;
+    if (!SUPERSEDED_JOB_AGE_HOURS.includes(config.maxJobAgeHours)) return;
     await chrome.storage.local.set({
       config: { ...config, maxJobAgeHours: DEFAULT_CONFIG.maxJobAgeHours },
     });

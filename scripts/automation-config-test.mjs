@@ -18,7 +18,7 @@ want('sends without per-job approval', cfg.reviewBeforeSend, false);
 want('two windows: morning and evening', cfg.activeWindows, [[7, 12], [19, 24]]);
 want('scan every N minutes', cfg.scanInterval, 10);
 want('daily Apply Point budget', cfg.dailyApBudget, 10);
-want('only posts under an hour old', cfg.maxJobAgeHours, 1);
+want('only posts under three hours old', cfg.maxJobAgeHours, 3);
 want('undated posts skipped', cfg.skipUndatedPosts, true);
 want('server is production', cfg.apiUrl, 'https://jobs.dlvasolutions.com');
 want('lanes cover what he asked for',
