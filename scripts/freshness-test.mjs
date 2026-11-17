@@ -25,7 +25,7 @@ for (const [stamp, hrs] of [
   ['2026-11-16 04:00:00', 24],
 ]) check(`${stamp} -> ${hrs.toFixed(2)}h`, Math.abs(jobAgeHours(stamp) - hrs) < 0.01, `got ${jobAgeHours(stamp).toFixed(3)}`);
 
-console.log('\n--- the 1 hour rule: what he wants applied to ---');
+console.log('\n--- the 3 hour rule, measured against the live board ---');
 const jobs = [
   post('2026-11-17 03:55:00'), // 5 min
   post('2026-11-17 03:50:00'), // 10 min
@@ -35,26 +35,28 @@ const jobs = [
   post('2026-11-16 16:00:00'), // 12h   - skip
   post('2026-11-16 04:00:00'), // 24h   - skip
 ];
-const kept = filterFresh(jobs, 1, true).map(j => j.posted_at);
+const jobs3 = [...jobs, post('2026-11-17 01:00:00'), post('2026-11-17 00:30:00')]; // 3h and 3.5h
+const kept = filterFresh(jobs3, 3, true).map(j => j.posted_at);
 check('5 minutes old  -> applied', kept.includes('2026-11-17 03:55:00'));
-check('10 minutes old -> applied', kept.includes('2026-11-17 03:50:00'));
 check('30 minutes old -> applied', kept.includes('2026-11-17 03:30:00'));
-check('exactly 1 hour -> applied', kept.includes('2026-11-17 03:00:00'));
-check('1.5 hours old  -> SKIPPED', !kept.includes('2026-11-17 02:30:00'));
+check('1 hour old     -> applied', kept.includes('2026-11-17 03:00:00'));
+check('1.5 hours old  -> applied (was wrongly skipped at 1h)', kept.includes('2026-11-17 02:30:00'));
+check('exactly 3 hours-> applied', kept.includes('2026-11-17 01:00:00'));
+check('3.5 hours old  -> SKIPPED', !kept.includes('2026-11-17 00:30:00'));
 check('12 hours old   -> SKIPPED', !kept.includes('2026-11-16 16:00:00'));
 check('a day old      -> SKIPPED', !kept.includes('2026-11-16 04:00:00'));
-check('exactly 4 kept', kept.length === 4, `got ${kept.length}`);
 
 console.log('\n--- a post with no timestamp ---');
 const undated = [{ apply_url: 'x', posted_at: '' }];
-check('skipped when the window is an hour', filterFresh(undated, 1, true).length === 0);
-check('kept when told to keep it', filterFresh(undated, 1, false).length === 1);
+check('skipped when undated', filterFresh(undated, 3, true).length === 0);
+check('kept when told to keep it', filterFresh(undated, 3, false).length === 1);
 
 console.log('\n--- config plumbing ---');
-check('default is 1 hour', /maxJobAgeHours: 1,/.test(bg));
+check('default is 3 hours', /maxJobAgeHours: 3,/.test(bg));
 check('undated skipped by default', /skipUndatedPosts: true,/.test(bg));
 check('the caller passes the flag', /filterFresh\(unseen, maxAge, skipUndated\)/.test(bg));
-check('migration only moves the exact old default', /config\.maxJobAgeHours !== OLD_DEFAULT_JOB_AGE_HOURS\) return;/.test(bg));
+check('migration moves every superseded default', /SUPERSEDED_JOB_AGE_HOURS = \[24, 1\]/.test(bg));
+check('and leaves a deliberate value alone', /!SUPERSEDED_JOB_AGE_HOURS\.includes\(config\.maxJobAgeHours\)\) return;/.test(bg));
 check('migration runs at worker start', /migrateFreshnessPolicy\(\);/.test(bg));
 check('migration cannot break startup', /migrateFreshnessPolicy[\s\S]{0,700}catch \(err\)/.test(bg));
 
