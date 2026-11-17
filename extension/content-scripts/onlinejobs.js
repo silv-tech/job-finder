@@ -151,6 +151,16 @@ console.log('[JF] Content script loaded on:', window.location.href);
       return { found: false, navigated: false, post_unavailable: true, description: '' };
     }
 
+    // Signed out. The board renders no apply control at all in that state, it
+    // renders "Please login or register as jobseeker to apply for this job",
+    // so every post looks like one with a missing button. Three cycles tonight
+    // reported "no apply button on the page" for exactly this, which is true
+    // and useless: nothing in the extension can fix it and only he can.
+    if (/please log ?in or register as jobseeker to apply/i.test(bodyText)
+        || (/\bLOG IN\b/.test(bodyText.slice(0, 300)) && /\bSIGN UP\b/.test(bodyText.slice(0, 300)))) {
+      return { found: false, navigated: false, signed_out: true, description: '' };
+    }
+
     // Check if already applied
     const pageElements = document.querySelectorAll('a, button, span, div');
     for (const el of pageElements) {

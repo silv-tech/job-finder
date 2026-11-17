@@ -1164,6 +1164,27 @@ async function applyToJobs(jobs) {
           }
         }
 
+        if (clickResult?.signed_out) {
+          // Nothing else in this cycle can work, and every remaining job would
+          // report the same thing, so stop here rather than filling the log
+          // with it. The post is handed back: it was never looked at.
+          await unmarkApplied(job.apply_url);
+          await unmarkSeen(job.apply_url);
+          await recordCycle(
+            'Signed out of onlinejobs.ph',
+            'The board is showing the login page, so no job can be applied to. Sign in at onlinejobs.ph and the next cycle will carry on.'
+          );
+          try {
+            chrome.notifications.create({
+              type: 'basic',
+              title: 'Signed out of OnlineJobs.ph',
+              message: 'Applications are paused until you sign in again.',
+              iconUrl: 'icons/icon128.png',
+            });
+          } catch { /* notifications are optional */ }
+          return { applied: appliedCount, signed_out: true };
+        }
+
         if (clickResult?.post_unavailable) {
           // Taken down between the scan and the apply. It stays marked so the
           // next cycle does not waste a tab on it again.
