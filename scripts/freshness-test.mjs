@@ -56,10 +56,16 @@ check('default is 3 hours', /maxJobAgeHours: 3,/.test(bg));
 check('undated skipped by default', /skipUndatedPosts: true,/.test(bg));
 check('the caller passes the flag', /filterFresh\(unseen, maxAge, skipUndated\)/.test(bg));
 check('migration moves every superseded default', /SUPERSEDED_JOB_AGE_HOURS = \[24, 1\]/.test(bg));
-check('and leaves a deliberate value alone', /!SUPERSEDED_JOB_AGE_HOURS\.includes\(config\.maxJobAgeHours\)\) return;/.test(bg));
+check('and leaves a deliberate value alone', /SUPERSEDED_JOB_AGE_HOURS\.includes\(config\.maxJobAgeHours\)\) \{/.test(bg));
 check('migration runs at worker start', /migrateFreshnessPolicy\(\);/.test(bg));
-check('migration cannot break startup', /migrateFreshnessPolicy[\s\S]{0,700}catch \(err\)/.test(bg));
+check('migration cannot break startup', /async function migrateFreshnessPolicy[\s\S]*?catch \(err\)/.test(bg));
 
 Date.now = realNow;
+console.log('\n--- the policy migration moves ceilings too ---');
+check('old 10-point budget is superseded', /SUPERSEDED_AP_BUDGETS = \[10\]/.test(bg));
+check('old 10-a-day cap is superseded', /SUPERSEDED_MAX_APPLIES = \[10\]/.test(bg));
+check('a deliberate budget is left alone', /SUPERSEDED_AP_BUDGETS\.includes\(config\.dailyApBudget\)/.test(bg));
+check('it writes once, not per field', /if \(!changed\) return;/.test(bg));
+
 console.log(bad === 0 ? '\nall clean' : `\n${bad} FAILURE(S)`);
 process.exit(bad ? 1 : 0);

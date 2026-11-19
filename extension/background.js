@@ -50,8 +50,14 @@ const DEFAULT_CONFIG = {
   skipUndatedPosts: true,
   // Apply Points refill at 10 a day and the balance caps at 60, so spending is
   // the real limit. Defaults keep us inside one day's income.
-  dailyApBudget: 10,
-  maxAppliesPerDay: 10,
+  // He asked for at least 15 applications a day. At 2 points for a strong
+  // match that is ~30 points, against the 10 a day onlinejobs.ph grants, so it
+  // runs down the banked balance rather than living off the daily income. That
+  // is a deliberate choice to spend savings for reach, not a sustainable rate:
+  // the balance caps at 60 and was 54 when this was set, so roughly two days
+  // of this and then it is back to what the day's points allow.
+  dailyApBudget: 34,
+  maxAppliesPerDay: 18,
   // When the scheduled cycle may run, in his own local time (the browser's
   // clock). Two windows, not one span: he wants the morning before employers
   // start reading and the evening when they catch up, and nothing in the dead
@@ -708,18 +714,38 @@ chrome.runtime.onStartup.addListener(() => {
 // still holds one of these is following the old policy rather than a choice,
 // so it moves; anything else was set deliberately and is left alone.
 const SUPERSEDED_JOB_AGE_HOURS = [24, 1];
+// Same idea for the daily ceilings: a stored value that is one of these is the
+// old policy rather than a choice, so it moves.
+const SUPERSEDED_AP_BUDGETS = [10];
+const SUPERSEDED_MAX_APPLIES = [10];
 
 async function migrateFreshnessPolicy() {
   try {
     const { config } = await chrome.storage.local.get('config');
     if (!config) return;
-    if (!SUPERSEDED_JOB_AGE_HOURS.includes(config.maxJobAgeHours)) return;
-    await chrome.storage.local.set({
-      config: { ...config, maxJobAgeHours: DEFAULT_CONFIG.maxJobAgeHours },
-    });
-    console.log('[JF] freshness policy moved from 24h to', DEFAULT_CONFIG.maxJobAgeHours + 'h');
+    const next = { ...config };
+    let changed = false;
+    if (SUPERSEDED_JOB_AGE_HOURS.includes(config.maxJobAgeHours)) {
+      next.maxJobAgeHours = DEFAULT_CONFIG.maxJobAgeHours;
+      changed = true;
+    }
+    if (SUPERSEDED_AP_BUDGETS.includes(config.dailyApBudget)) {
+      next.dailyApBudget = DEFAULT_CONFIG.dailyApBudget;
+      changed = true;
+    }
+    if (SUPERSEDED_MAX_APPLIES.includes(config.maxAppliesPerDay)) {
+      next.maxAppliesPerDay = DEFAULT_CONFIG.maxAppliesPerDay;
+      changed = true;
+    }
+    if (!changed) return;
+    await chrome.storage.local.set({ config: next });
+    console.log('[JF] policy moved:', JSON.stringify({
+      maxJobAgeHours: next.maxJobAgeHours,
+      dailyApBudget: next.dailyApBudget,
+      maxAppliesPerDay: next.maxAppliesPerDay,
+    }));
   } catch (err) {
-    console.warn('[JF] could not move the freshness policy', err);
+    console.warn('[JF] could not move the policy', err);
   }
 }
 

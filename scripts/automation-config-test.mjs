@@ -17,7 +17,7 @@ want('finds jobs without being told to', cfg.autoApply, true);
 want('sends without per-job approval', cfg.reviewBeforeSend, false);
 want('two windows: morning and evening', cfg.activeWindows, [[7, 12], [19, 24]]);
 want('scan every N minutes', cfg.scanInterval, 10);
-want('daily Apply Point budget', cfg.dailyApBudget, 10);
+want('daily Apply Point budget', cfg.dailyApBudget, 34);
 want('only posts under three hours old', cfg.maxJobAgeHours, 3);
 want('undated posts skipped', cfg.skipUndatedPosts, true);
 want('server is production', cfg.apiUrl, 'https://jobs.dlvasolutions.com');
@@ -28,9 +28,10 @@ console.log('\n--- Apply Points: 2 for a strong match, 1 for a marginal one ---'
 const apForScore = (s) => (s >= 70 ? 2 : 1);
 for (const [score, pts] of [[95,2],[70,2],[69,1],[60,1]]) want(`score ${score} costs`, apForScore(score), pts);
 const strong = Math.floor(cfg.dailyApBudget / 2), weak = cfg.dailyApBudget;
-console.log(`        -> ${strong} applications/day if all strong, ${weak} if all marginal`);
-want('lands inside his 5-10 a day', strong >= 5 && weak <= 10, true);
-want('spends exactly the 10/day refill, no drain', cfg.dailyApBudget, 10);
+console.log(`        -> ${strong} applications/day if all strong, capped at ${cfg.maxAppliesPerDay}`);
+want('can reach the 15 he asked for', strong >= 15, true);
+want('the per-day cap allows it too', cfg.maxAppliesPerDay >= 15, true);
+want('but does not run away', cfg.maxAppliesPerDay <= 20, true);
 
 console.log('\n--- posts that must NEVER auto-send (drafted and parked instead) ---');
 const TRIGGERS = [...readFileSync(new URL('../src/lib/manual-requirements.ts', import.meta.url), 'utf8')
