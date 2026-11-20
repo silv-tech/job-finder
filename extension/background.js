@@ -24,7 +24,21 @@ const DEFAULT_CONFIG = {
   // post to the second (data-temp="2026-11-17 03:53:00"), so this is measured,
   // not approximate.
   //
-  // Three hours, and the number came from counting the board rather than from
+  // Six hours now, for the same reason the number moved to three: counting.
+  // Friday ran a full day at three hours and sent 6 against a target of 15.
+  // Seventy-six cycles produced seven attempts; the rest reported "Nothing
+  // new", so the send rate was not the problem, the pool was. Counted again on
+  // Saturday at 03:04, posts under three hours across the lane searches came
+  // to roughly 27 and under six hours to roughly double that, and most of the
+  // three-hour set was already scanned on an earlier cycle. Six hours is still
+  // the same morning on a board where listings sit for days.
+  //
+  // Six is a projection to about twelve, not fifteen. If that is what it
+  // returns, the next lever is coverage (more search terms per lane, or more
+  // than the first page) rather than loosening this further, because past six
+  // hours the early advantage is what gets spent.
+  //
+  // Three hours, and that number came from counting the board rather than from
   // taste. At one hour, measured live at 14:35 on 2026-11-17 across the eight
   // lane searches, his four core categories had NOTHING eligible:
   //
@@ -42,7 +56,7 @@ const DEFAULT_CONFIG = {
   // out and left only the generic VA flood. A full day of it produced zero
   // applications. Three hours restores every lane and is still early on a
   // board where listings sit for days.
-  maxJobAgeHours: 3,
+  maxJobAgeHours: 6,
   // With an hour-wide window an undated post cannot be shown to be fresh, and
   // is far more likely stale than minutes old, so it is skipped. That is the
   // opposite of the right call when the window was a day, which is why it is
@@ -713,7 +727,7 @@ chrome.runtime.onStartup.addListener(() => {
 // Every value this default has previously shipped with. A stored config that
 // still holds one of these is following the old policy rather than a choice,
 // so it moves; anything else was set deliberately and is left alone.
-const SUPERSEDED_JOB_AGE_HOURS = [24, 1];
+const SUPERSEDED_JOB_AGE_HOURS = [24, 1, 3];
 // Same idea for the daily ceilings: a stored value that is one of these is the
 // old policy rather than a choice, so it moves.
 const SUPERSEDED_AP_BUDGETS = [10];
