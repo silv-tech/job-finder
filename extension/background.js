@@ -763,6 +763,68 @@ async function migrateFreshnessPolicy() {
   }
 }
 
+// Is the onlinejobs.ph session still alive? One cheap GET, no model call.
+// Signed out, the board serves the login page instead of the job list, and
+// every downstream step then fails in a way that looks like something else:
+// before this was named it read as "no apply button on the page", and two
+// fixes were spent on the button search before anyone looked at the session.
+//
+// It is checked BEFORE the cycle does any work. Three expiries in eight days,
+// and the worst of them burned a whole morning window queueing jobs and
+// dropping every one, because nothing noticed until he thought to ask.
+const SIGNED_OUT_MARKERS = /please log ?in or register as jobseeker|name="password"|id="password"/i;
+
+async function isBoardSignedIn() {
+  try {
+    const res = await fetch('https://www.onlinejobs.ph/jobseekers/jobsearch', {
+      credentials: 'include',
+      redirect: 'follow',
+    });
+    if (!res.ok) return null; // can't tell: a network problem is not a logout
+    const html = await res.text();
+    if (/\/jobseekers\/login/i.test(res.url)) return false;
+    if (SIGNED_OUT_MARKERS.test(html)) return false;
+    return true;
+  } catch {
+    return null; // can't tell
+  }
+}
+
+// A notification is easy to miss hours later; the badge sits in the toolbar
+// until it is fixed.
+async function showSignedOutBadge(on) {
+  try {
+    await chrome.action.setBadgeText({ text: on ? '!' : '' });
+    if (on) await chrome.action.setBadgeBackgroundColor({ color: '#b91c1c' });
+  } catch { /* badge is cosmetic, never worth throwing over */ }
+}
+
+// Notify on the TRANSITION only, so a dead session does not fire a
+// notification every ten minutes all day.
+async function noteSignedOut() {
+  const { signedOutSince } = await chrome.storage.local.get('signedOutSince');
+  await showSignedOutBadge(true);
+  if (signedOutSince) return;
+  await chrome.storage.local.set({ signedOutSince: new Date().toISOString() });
+  try {
+    chrome.notifications.create('jf-signed-out', {
+      type: 'basic',
+      title: 'Signed out of OnlineJobs.ph',
+      message: 'Applications are paused. Sign in and they resume on the next cycle.',
+      iconUrl: 'icons/icon128.png',
+      priority: 2,
+    });
+  } catch { /* optional */ }
+}
+
+async function noteSignedIn() {
+  const { signedOutSince } = await chrome.storage.local.get('signedOutSince');
+  await showSignedOutBadge(false);
+  if (!signedOutSince) return;
+  await chrome.storage.local.remove('signedOutSince');
+  console.log('[JF] signed back in; was out since', signedOutSince);
+}
+
 // Which build is actually running, written the moment the worker starts.
 //
 // Three separate code changes this week were merged, deployed and believed
@@ -845,6 +907,19 @@ async function runAutoApplyCycle(trigger, opts) {
       });
       return;
     }
+
+    // Before anything else. A dead session makes every later step fail in a
+    // way that looks like a different bug.
+    const signedIn = await isBoardSignedIn();
+    if (signedIn === false) {
+      await noteSignedOut();
+      await recordCycle(
+        'Signed out of onlinejobs.ph',
+        'The board is serving the login page. Sign in and the next cycle carries on by itself.'
+      );
+      return;
+    }
+    if (signedIn === true) await noteSignedIn();
 
     // Nothing to do if today's budget is already spent: don't even open a tab.
     const spare = await budgetAllows(1, { ignoreDaily });
